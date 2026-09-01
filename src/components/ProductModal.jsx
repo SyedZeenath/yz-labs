@@ -28,9 +28,9 @@ export default function ProductModal({ product, onClose }) {
   };
 
   return (
-    <AnimatePresence>
-      {product && (
-        <>
+    <>
+      <AnimatePresence>
+        {product && [
           <motion.div
             key="scrim"
             initial={{ opacity: 0 }}
@@ -39,7 +39,7 @@ export default function ProductModal({ product, onClose }) {
             transition={{ duration: 0.2 }}
             onClick={onClose}
             style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 120 }}
-          />
+          />,
           <motion.div
             key="panel"
             role="dialog"
@@ -153,15 +153,15 @@ export default function ProductModal({ product, onClose }) {
                 </button>
               </div>
             </div>
-          </motion.div>
-        </>
-      )}
+          </motion.div>,
+        ]}
+      </AnimatePresence>
 
       <style>{`
         @media (max-width: 720px) {
           .product-modal { grid-template-columns: 1fr !important; }
         }
       `}</style>
-    </AnimatePresence>
+    </>
   );
 }
