@@ -18,8 +18,8 @@ export default function ProductVisual({ product, focused = false }) {
   const wrapRef = useRef(null);
 
   const active = isHovering || focused;
-  const hasCutout = Boolean(product.cutout) && !cutoutFailed;
-  const hasImage = !hasCutout && Boolean(product.image) && !imgFailed;
+  const hasCutout = Boolean(product.heroCutout) && !cutoutFailed;
+  const hasImage = !hasCutout && Boolean(product.heroImage) && !imgFailed;
 
   const seed = seedFrom(product.id);
   const bobDuration = 4.4 + (seed % 5) * 0.4;
@@ -98,12 +98,12 @@ export default function ProductVisual({ product, focused = false }) {
             ? undefined
             : { duration: bobDuration, delay: bobDelay, repeat: Infinity, ease: "easeInOut" }
         }
-        style={{ width: "84%", height: "84%", position: "relative", zIndex: 1, transformStyle: "preserve-3d" }}
+        style={{ position: "absolute", inset: "8%", zIndex: 1, transformStyle: "preserve-3d" }}
       >
         <motion.div
           style={{
-            width: "100%",
-            height: "100%",
+            position: "absolute",
+            inset: 0,
             rotateX: reduceMotion ? 0 : tiltX,
             rotateY: reduceMotion ? 0 : tiltY,
             scale: active ? 1.07 : 1,
@@ -112,7 +112,7 @@ export default function ProductVisual({ product, focused = false }) {
         >
           {hasCutout ? (
             <motion.img
-              src={product.cutout}
+              src={product.heroCutout}
               alt={product.name}
               onError={() => setCutoutFailed(true)}
               animate={{
@@ -138,10 +138,15 @@ export default function ProductVisual({ product, focused = false }) {
             >
               {hasImage ? (
                 <img
-                  src={product.image}
+                  src={product.heroImage}
                   alt={product.name}
                   onError={() => setImgFailed(true)}
-                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    objectPosition: product.heroImagePosition || "center",
+                  }}
                 />
               ) : (
                 <ProductSwatch colorHex={product.colorHex} />

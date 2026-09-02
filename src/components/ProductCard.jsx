@@ -4,11 +4,17 @@ import ProductVisual from "./ProductVisual.jsx";
 import { useCart } from "../store/cart.jsx";
 
 const cardVariants = {
-  hidden: { opacity: 0, y: 50, rotate: -2.5 },
-  show: { opacity: 1, y: 0, rotate: 0, transition: { duration: 0.7, ease: [0.16, 1, 0.3, 1] } },
+  hidden: { opacity: 0, y: 70, rotateX: -35, scale: 0.88 },
+  show: {
+    opacity: 1,
+    y: 0,
+    rotateX: 0,
+    scale: 1,
+    transition: { duration: 1.05, ease: [0.16, 1, 0.3, 1] },
+  },
 };
 
-export default function ProductCard({ product, offset = 0, onOpen }) {
+export default function ProductCard({ product, onOpen }) {
   const { addItem } = useCart();
   const [focused, setFocused] = useState(false);
   const [added, setAdded] = useState(false);
@@ -39,7 +45,7 @@ export default function ProductCard({ product, offset = 0, onOpen }) {
       role="button"
       tabIndex={0}
       aria-label={`View details for ${product.name}`}
-      style={{ marginTop: offset, display: "flex", flexDirection: "column", cursor: "pointer" }}
+      style={{ display: "flex", flexDirection: "column", cursor: "pointer", transformPerspective: 1200 }}
     >
       <div
         className="mono"

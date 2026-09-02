@@ -1,19 +1,36 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { PRODUCTS, CATEGORIES } from "../data/products.js";
 import ProductCard from "./ProductCard.jsx";
+import ProductScatter from "./ProductScatter.jsx";
 import ProductModal from "./ProductModal.jsx";
+import RevealText from "./RevealText.jsx";
 
 const gridVariants = {
   hidden: {},
-  show: { transition: { staggerChildren: 0.09 } },
+  show: { transition: { staggerChildren: 0.12 } },
 };
 
-const OFFSETS = [0, 64, 28];
+const MOBILE_BREAKPOINT = 760;
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.innerWidth < MOBILE_BREAKPOINT
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
+    const onChange = () => setIsMobile(mq.matches);
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return isMobile;
+}
 
 export default function ProductGrid() {
   const [active, setActive] = useState("All");
   const [selected, setSelected] = useState(null);
+  const isMobile = useIsMobile();
   const filtered = active === "All" ? PRODUCTS : PRODUCTS.filter((p) => p.category === active);
 
   return (
@@ -33,9 +50,7 @@ export default function ProductGrid() {
             <div className="eyebrow" style={{ marginBottom: 16 }}>
               02 / Catalog
             </div>
-            <h2 style={{ fontSize: "clamp(30px, 4vw, 46px)", maxWidth: 560 }}>
-              Current run.
-            </h2>
+            <RevealText as="h2" style={{ fontSize: "clamp(30px, 4vw, 46px)", maxWidth: 560 }} parts={["Current run."]} />
           </div>
 
           <div className="mono" style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
@@ -61,42 +76,30 @@ export default function ProductGrid() {
           </div>
         </div>
 
-        <motion.div
-          key={active}
-          variants={gridVariants}
-          initial="hidden"
-          whileInView="show"
-          viewport={{ once: true, amount: 0.05 }}
-          className="product-grid"
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            columnGap: 40,
-            rowGap: 88,
-          }}
-        >
-          {filtered.map((product, i) => (
-            <ProductCard
-              key={product.id}
-              product={product}
-              offset={OFFSETS[i % OFFSETS.length]}
-              onOpen={() => setSelected(product)}
-            />
-          ))}
-        </motion.div>
+        {isMobile ? (
+          <motion.div
+            key={active}
+            variants={gridVariants}
+            initial="hidden"
+            whileInView="show"
+            viewport={{ once: true, amount: 0.05 }}
+            className="product-grid"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr",
+              rowGap: 64,
+            }}
+          >
+            {filtered.map((product) => (
+              <ProductCard key={product.id} product={product} onOpen={() => setSelected(product)} />
+            ))}
+          </motion.div>
+        ) : (
+          <ProductScatter key={active} products={filtered} onOpen={setSelected} />
+        )}
       </div>
 
       <ProductModal product={selected} onClose={() => setSelected(null)} />
-
-      <style>{`
-        @media (max-width: 900px) {
-          .product-grid { grid-template-columns: repeat(2, 1fr) !important; row-gap: 64px !important; }
-        }
-        @media (max-width: 560px) {
-          .product-grid { grid-template-columns: 1fr !important; }
-          .product-grid > * { margin-top: 0 !important; }
-        }
-      `}</style>
     </section>
   );
 }
