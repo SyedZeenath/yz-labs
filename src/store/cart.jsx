@@ -74,7 +74,7 @@ export function CartProvider({ children }) {
 
     if (typeof window.Razorpay === "undefined") {
       setStatus("error");
-      setNotice("Payment widget failed to load — check your connection and try again.");
+      setNotice("Payment widget failed to load. Check your connection and try again.");
       return;
     }
 
@@ -118,7 +118,7 @@ export function CartProvider({ children }) {
           const result = await verifyRes.json();
           if (result.ok) {
             setStatus("success");
-            setNotice("Payment successful — thank you!");
+            setNotice("Payment successful. Thank you!");
             clearCart();
           } else {
             setStatus("error");
@@ -138,7 +138,7 @@ export function CartProvider({ children }) {
 
     rzp.on("payment.failed", () => {
       setStatus("error");
-      setNotice("Payment failed. No amount was charged — you can try again.");
+      setNotice("Payment failed. No amount was charged. You can try again.");
     });
 
     rzp.open();

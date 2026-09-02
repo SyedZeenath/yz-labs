@@ -7,27 +7,21 @@ import { pathToFileURL } from "node:url";
 const SRC_DIR = path.resolve("public/products");
 const OUT_DIR = path.resolve("public/products/cutout");
 
-const FILES = [
-  "ridge-valet-tray.jpg",
-  "spiral-propagation-vase.jpg",
-  "strata-desk-set.jpg",
-  "clock.jpeg",
-];
+// Relative to public/products/ — subfolders are preserved under cutout/.
+const FILES = ["round/3.png", "step/1.png"];
 
 async function run() {
-  if (!existsSync(OUT_DIR)) await mkdir(OUT_DIR, { recursive: true });
-
   for (const file of FILES) {
     const inputPath = path.join(SRC_DIR, file);
-    const outName = file.replace(/\.(jpe?g|png)$/i, ".png");
-    const outputPath = path.join(OUT_DIR, outName);
+    const outputPath = path.join(OUT_DIR, file);
+    await mkdir(path.dirname(outputPath), { recursive: true });
 
     console.log(`Processing ${file}...`);
     const t0 = Date.now();
     const blob = await removeBackground(pathToFileURL(inputPath).href);
     const buffer = Buffer.from(await blob.arrayBuffer());
     await writeFile(outputPath, buffer);
-    console.log(`  -> ${outName} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+    console.log(`  -> cutout/${file} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
   }
 
   console.log("Done.");

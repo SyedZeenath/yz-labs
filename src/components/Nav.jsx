@@ -29,10 +29,10 @@ export default function Nav() {
         left: 0,
         right: 0,
         zIndex: 50,
-        borderBottom: "1px solid",
-        borderColor: solid ? "var(--border)" : "transparent",
-        background: solid ? "rgba(10,10,12,0.82)" : "transparent",
-        backdropFilter: solid ? "blur(10px)" : "none",
+        borderBottom: "1px solid var(--border)",
+        background: solid ? "rgba(0,0,0,0.82)" : "rgba(0,0,0,0.5)",
+        backdropFilter: "blur(10px)",
+        WebkitBackdropFilter: "blur(10px)",
         transition: "background 200ms ease, border-color 200ms ease",
       }}
     >
@@ -41,7 +41,13 @@ export default function Nav() {
         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: 72 }}
       >
         <a href="#top" style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <img src="/logo-circle.png" alt="YZ LABS" width={40} height={40} style={{ display: "block" }} />
+          <img
+            src="/logo-circle.png"
+            alt="YZ LABS"
+            width={40}
+            height={40}
+            style={{ display: "block", borderRadius: "50%", boxShadow: "0 0 0 1px var(--border-strong)" }}
+          />
           <span className="wordmark" style={{ fontSize: 20, color: "var(--fg)" }}>
             YZ Labs
           </span>
@@ -141,8 +147,8 @@ export default function Nav() {
           transition: right 200ms ease;
         }
         .nav-link:hover::after { right: 0; }
-        @media (max-width: 780px) {
-          header nav { display: none; }
+        @media (max-width: 920px) {
+          header nav { display: none !important; }
           .nav-toggle { display: flex !important; }
         }
       `}</style>

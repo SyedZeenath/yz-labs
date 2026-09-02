@@ -1,14 +1,24 @@
+import { motion, useScroll, useVelocity, useTransform, useSpring, useReducedMotion } from "motion/react";
+
 const ITEMS = [
   "PLA+ & PETG",
   "HAND FINISHED",
   "MADE TO ORDER",
   "LIMITED BATCHES",
   "0.12MM LAYERS",
-  "STUDIO RUN — NOT A WAREHOUSE",
+  "STUDIO RUN · NOT A WAREHOUSE",
 ];
 
+// The ticker reacts to how fast you're scrolling: skewing and briefly
+// speeding up under a fast flick, settling flat again when you stop —
+// distinct from every other section's motion on the page.
 export default function MarqueeStrip() {
+  const reduceMotion = useReducedMotion();
   const track = [...ITEMS, ...ITEMS];
+  const { scrollY } = useScroll();
+  const velocity = useVelocity(scrollY);
+  const smoothVelocity = useSpring(velocity, { stiffness: 350, damping: 40 });
+  const skew = useTransform(smoothVelocity, [-2500, 0, 2500], [-8, 0, 8], { clamp: true });
 
   return (
     <div
@@ -20,7 +30,7 @@ export default function MarqueeStrip() {
         position: "relative",
       }}
     >
-      <div
+      <motion.div
         className="mono"
         style={{
           display: "flex",
@@ -30,6 +40,7 @@ export default function MarqueeStrip() {
           fontSize: 13,
           letterSpacing: "0.08em",
           textTransform: "uppercase",
+          skewX: reduceMotion ? 0 : skew,
         }}
       >
         {track.map((t, i) => (
@@ -38,7 +49,7 @@ export default function MarqueeStrip() {
             <span style={{ color: "var(--accent)", margin: "0 28px" }}>✦</span>
           </span>
         ))}
-      </div>
+      </motion.div>
     </div>
   );
 }

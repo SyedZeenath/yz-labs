@@ -1,8 +1,8 @@
 :root {
-  --bg: #0a0a0c;
-  --bg-elevated: #111114;
-  --card: #17171b;
-  --card-hover: #1c1c21;
+  --bg: #000000;
+  --bg-elevated: #000000;
+  --card: #000000;
+  --card-hover: #0a0a0a;
   --fg: #f4f3ee;
   --fg-dim: #c7c6c0;
   --muted: #8f8f97;
