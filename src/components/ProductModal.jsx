@@ -161,12 +161,25 @@ export default function ProductModal({ product, onClose }) {
           </dl>
 
           <div style={{ marginTop: "auto", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-            <span className="mono" style={{ fontSize: 24, fontWeight: 600 }}>
-              ₹{p.price}
-            </span>
-            <button onClick={handleAdd} className="btn btn-primary">
-              {added ? "✓ Added to cart" : "+ Add to cart"}
-            </button>
+            {p.price > 0 ? (
+              <>
+                <span className="mono" style={{ fontSize: 24, fontWeight: 600 }}>
+                  ₹{p.price}
+                </span>
+                <button onClick={handleAdd} className="btn btn-primary">
+                  {added ? "✓ Added to cart" : "+ Add to cart"}
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="mono" style={{ fontSize: 14, color: "var(--muted)" }}>
+                  Pricing coming soon
+                </span>
+                <button disabled className="btn btn-primary" style={{ opacity: 0.4, cursor: "not-allowed" }}>
+                  Not yet available
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>

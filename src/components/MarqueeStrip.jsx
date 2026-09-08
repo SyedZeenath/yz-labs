@@ -1,7 +1,7 @@
 import { motion, useScroll, useVelocity, useTransform, useSpring, useReducedMotion } from "motion/react";
 
 const ITEMS = [
-  "PLA+ & PETG",
+  "PLA",
   "HAND FINISHED",
   "MADE TO ORDER",
   "LIMITED BATCHES",
