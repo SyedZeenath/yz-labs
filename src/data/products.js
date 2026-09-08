@@ -5,18 +5,27 @@
 // `images` is the full gallery shown in the product detail popup (plain
 // photos, background intact, however many you want).
 
-export const PRODUCTS = [
+// Any product added below without a real `price` (missing, 0, or negative)
+// silently defaults to ₹500 instead of being sold at ₹0 — see the
+// normalization at the bottom of this file. That default only exists so a
+// future oversight fails safe (a plausible placeholder price) instead of
+// failing the way this one already did once (a real product stuck at ₹0,
+// which Razorpay just rejects outright at checkout). Still set a real price
+// for every product before it ships — 500 is a stand-in, not a decision.
+const DEFAULT_PRICE = 500;
+
+const RAW_PRODUCTS = [
   {
     id: "round-planter",
     name: "Round Propagation Planter",
     category: "Planters",
     tagline: "Spiral-textured base with twin test-tube vases",
-    material: "PETG (satin)",
+    material: "PLA",
     colorway: "Graphite",
     colorHex: "#2B2C31",
     dims: "90 × 90 × 95 mm",
     weight: "134 g",
-    price: 42,
+    price: 1070,
     status: "In stock",
     batch: "B-009",
     heroImage: "/products/round/3.png",
@@ -28,12 +37,12 @@ export const PRODUCTS = [
     name: "Step Propagation Planter",
     category: "Planters",
     tagline: "Stepped riser + hex tower for pens, vials & succulents",
-    material: "PLA+ (matte)",
+    material: "PLA",
     colorway: "Terracotta / Clay",
     colorHex: "#C97452",
     dims: "220 × 110 × 90 mm",
     weight: "212 g",
-    price: 58,
+    price: 2100,
     status: "Made to order",
     batch: "B-021",
     heroImage: "/products/step/1.png",
@@ -45,114 +54,23 @@ export const PRODUCTS = [
     name: "Corner Wall Planter",
     category: "Planters",
     tagline: "Twin-tube propagation planter, built to sit flush in a corner",
-    material: "PLA+ (matte)",
+    material: "PLA",
     colorway: "Bone",
     colorHex: "#D8D3C6",
     dims: "TBC",
     weight: "TBC",
-    price: 0,
+    price: 1500,
     status: "Made to order",
     batch: "B-026",
     heroImage: "/products/corner/1.png",
     heroCutout: null,
     images: ["/products/corner/1.png", "/products/corner/2.png"],
   },
-
-  // --- Sample products below ---
-  // Placeholder catalog density check only: these reuse the 3 real photo
-  // sets above under different names/colorways so the gallery can be
-  // previewed with 8 tiles instead of 3. Swap in real photos + specs (or
-  // delete these) before shipping — not real SKUs.
-  {
-    id: "sample-round-sand",
-    name: "Round Propagation Planter · Sand",
-    category: "Planters",
-    tagline: "Spiral-textured base with twin test-tube vases",
-    material: "PETG (satin)",
-    colorway: "Sand",
-    colorHex: "#C9BFA8",
-    dims: "90 × 90 × 95 mm",
-    weight: "134 g",
-    price: 42,
-    status: "In stock",
-    batch: "B-010",
-    heroImage: "/products/round/2.png",
-    heroCutout: "/products/cutout/round/3.png",
-    images: ["/products/round/2.png", "/products/round/1.png", "/products/round/3.png"],
-    sample: true,
-  },
-  {
-    id: "sample-step-slate",
-    name: "Step Propagation Planter · Slate",
-    category: "Planters",
-    tagline: "Stepped riser + hex tower for pens, vials & succulents",
-    material: "PLA+ (matte)",
-    colorway: "Slate",
-    colorHex: "#5B6470",
-    dims: "220 × 110 × 90 mm",
-    weight: "212 g",
-    price: 58,
-    status: "In stock",
-    batch: "B-022",
-    heroImage: "/products/step/2.png",
-    heroCutout: "/products/cutout/step/1.png",
-    images: ["/products/step/2.png", "/products/step/1.png"],
-    sample: true,
-  },
-  {
-    id: "sample-corner-duo",
-    name: "Corner Wall Planter · Duo",
-    category: "Planters",
-    tagline: "Twin-tube propagation planter, built to sit flush in a corner",
-    material: "PLA+ (matte)",
-    colorway: "Charcoal",
-    colorHex: "#3A3B40",
-    dims: "TBC",
-    weight: "TBC",
-    price: 46,
-    status: "Made to order",
-    batch: "B-027",
-    heroImage: "/products/corner/2.png",
-    heroCutout: null,
-    images: ["/products/corner/2.png", "/products/corner/1.png"],
-    sample: true,
-  },
-  {
-    id: "sample-round-charcoal",
-    name: "Round Propagation Planter · Charcoal",
-    category: "Planters",
-    tagline: "Spiral-textured base with twin test-tube vases",
-    material: "PETG (satin)",
-    colorway: "Charcoal",
-    colorHex: "#2B2C31",
-    dims: "90 × 90 × 95 mm",
-    weight: "134 g",
-    price: 45,
-    status: "Made to order",
-    batch: "B-011",
-    heroImage: "/products/round/1.png",
-    heroCutout: "/products/cutout/round/3.png",
-    images: ["/products/round/1.png", "/products/round/2.png", "/products/round/3.png"],
-    sample: true,
-  },
-  {
-    id: "sample-step-clay",
-    name: "Step Propagation Planter · Clay",
-    category: "Planters",
-    tagline: "Stepped riser + hex tower for pens, vials & succulents",
-    material: "PLA+ (matte)",
-    colorway: "Terracotta / Clay",
-    colorHex: "#C97452",
-    dims: "220 × 110 × 90 mm",
-    weight: "212 g",
-    price: 62,
-    status: "In stock",
-    batch: "B-023",
-    heroImage: "/products/step/1.png",
-    heroCutout: "/products/cutout/step/1.png",
-    images: ["/products/step/1.png", "/products/step/2.png"],
-    sample: true,
-  },
 ];
+
+export const PRODUCTS = RAW_PRODUCTS.map((p) => ({
+  ...p,
+  price: p.price > 0 ? p.price : DEFAULT_PRICE,
+}));
 
 export const CATEGORIES = ["All", ...new Set(PRODUCTS.map((p) => p.category))];

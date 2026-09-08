@@ -79,23 +79,30 @@ app.post("/api/create-order", async (req, res) => {
   const lineItems = [];
   for (const { id, qty } of items) {
     const price = priceLookup(id);
-    if (price == null) {
-      return res.status(400).json({ error: `Unknown product: ${id}` });
+    // Razorpay will flat-out refuse to create an order for a line/total
+    // amount of ₹0 — that's exactly the rejection this was built to catch.
+    // A product with no real price yet should be pulled from the catalog
+    // (src/data/products.js), not left orderable at ₹0.
+    if (price == null || !Number.isFinite(price) || price <= 0) {
+      return res.status(400).json({ error: `"${id}" doesn't have a valid price yet and can't be ordered.` });
     }
-    if (!Number.isFinite(qty) || qty <= 0) {
+    if (!Number.isInteger(qty) || qty <= 0) {
       return res.status(400).json({ error: `Invalid quantity for: ${id}` });
     }
     amount += price * qty;
     lineItems.push({ id, qty, price });
   }
 
-  if (amount <= 0) {
-    return res.status(400).json({ error: "Order total must be greater than zero." });
+  const amountPaise = Math.round(amount * 100);
+  // Razorpay's actual minimum order amount is ₹1 (100 paise), not just
+  // "more than zero" — enforce the real rule, not a looser stand-in for it.
+  if (amountPaise < 100) {
+    return res.status(400).json({ error: "Order total must be at least ₹1." });
   }
 
   try {
     const order = await razorpay.orders.create({
-      amount: Math.round(amount * 100), // Razorpay wants the amount in paise
+      amount: amountPaise, // Razorpay wants the amount in paise
       currency: "INR",
       receipt: `yzlabs_${Date.now()}`,
       notes: { items: JSON.stringify(lineItems) },

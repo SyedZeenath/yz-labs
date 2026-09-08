@@ -19,8 +19,11 @@ export default function ProductCard({ product, onOpen }) {
   const [focused, setFocused] = useState(false);
   const [added, setAdded] = useState(false);
 
+  const orderable = product.price > 0;
+
   const handleAdd = (e) => {
     e.stopPropagation();
+    if (!orderable) return;
     addItem(product.id);
     setAdded(true);
     setTimeout(() => setAdded(false), 1200);
@@ -72,8 +75,8 @@ export default function ProductCard({ product, onOpen }) {
           </p>
           <h3 style={{ fontSize: 17, fontWeight: 600 }}>{product.name}</h3>
         </div>
-        <span className="mono" style={{ fontSize: 16, fontWeight: 600, whiteSpace: "nowrap" }}>
-          ₹{product.price}
+        <span className="mono" style={{ fontSize: 16, fontWeight: 600, whiteSpace: "nowrap", color: orderable ? "var(--fg)" : "var(--muted)" }}>
+          {orderable ? `₹${product.price}` : "TBA"}
         </span>
       </div>
 
@@ -94,8 +97,13 @@ export default function ProductCard({ product, onOpen }) {
         <span style={{ fontSize: 10.5, color: "var(--muted)" }}>
           {product.material} · {product.dims}
         </span>
-        <button onClick={handleAdd} className="add-btn" style={{ flexShrink: 0 }}>
-          {added ? "✓ Added" : "+ Add"}
+        <button
+          onClick={handleAdd}
+          className="add-btn"
+          disabled={!orderable}
+          style={{ flexShrink: 0, opacity: orderable ? 1 : 0.4, cursor: orderable ? "pointer" : "not-allowed" }}
+        >
+          {!orderable ? "Not yet available" : added ? "✓ Added" : "+ Add"}
         </button>
       </div>
 

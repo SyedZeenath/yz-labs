@@ -129,7 +129,9 @@ function OrbitTile({ product, angle, offsetDeg, onOpen, lastPanRef }) {
         style={{ marginTop: 12, display: "flex", justifyContent: "space-between", gap: 10, fontSize: 11, pointerEvents: "none" }}
       >
         <span style={{ textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--fg-dim)" }}>{product.name}</span>
-        <span style={{ color: "var(--fg)", fontWeight: 600, whiteSpace: "nowrap" }}>₹{product.price}</span>
+        <span style={{ color: product.price > 0 ? "var(--fg)" : "var(--muted)", fontWeight: 600, whiteSpace: "nowrap" }}>
+          {product.price > 0 ? `₹${product.price}` : "TBA"}
+        </span>
       </div>
       <div className="mono" style={{ fontSize: 10, color: "var(--muted)", marginTop: 2, pointerEvents: "none" }}>
         {product.batch}

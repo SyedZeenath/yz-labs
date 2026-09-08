@@ -11,10 +11,10 @@ const SWATCHES = [
 ];
 
 const SPECS = [
-  ["Materials", "PLA+ and PETG, sourced from EU/US filament makers"],
+  ["Materials", "PLA"],
   ["Layer height", "0.12mm fine / 0.20mm standard, chosen per part"],
   ["Wall count", "4–6 perimeters for load-bearing pieces"],
-  ["Finish", "Matte sanded, satin, or raw ribbed: your call"],
+  ["Finish", "Matte sanded, satin, or raw ribbed"],
   ["Customization", "Colorway, scale (±20%), and engraved initials"],
   ["Lead time", "3–7 studio days, batch dependent"],
 ];
