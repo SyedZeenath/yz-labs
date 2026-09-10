@@ -139,7 +139,7 @@ function Rig({ reduceMotion }) {
 function Scene({ chapters, activeIndex, reduceMotion }) {
   const textures = useLoader(
     THREE.TextureLoader,
-    chapters.map((c) => c.cutout)
+    chapters.map((c) => c.image)
   );
 
   return (

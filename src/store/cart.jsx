@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
-import { PRODUCTS } from "../data/products.js";
+import { useProducts } from "./products.jsx";
 
 const CartContext = createContext(null);
 const STORAGE_KEY = "yzlabs-cart-v1";
@@ -14,6 +14,7 @@ function readStoredCart() {
 }
 
 export function CartProvider({ children }) {
+  const products = useProducts();
   const [lines, setLines] = useState(readStoredCart);
   const [isOpen, setIsOpen] = useState(false);
   // idle | checking-out | awaiting-payment | verifying | success | error
@@ -24,24 +25,33 @@ export function CartProvider({ children }) {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(lines));
   }, [lines]);
 
-  const addItem = useCallback((productId, qty = 1) => {
-    setLines((prev) => ({ ...prev, [productId]: (prev[productId] || 0) + qty }));
+  // A cart line is identified by product + color together (not just the
+  // product id) — the same planter in two colors is two separate lines,
+  // each with its own quantity and its own (possibly different) price.
+  const lineKey = (productId, colorId) => `${productId}::${colorId}`;
+
+  const addItem = useCallback((productId, colorId, qty = 1) => {
+    const key = lineKey(productId, colorId);
+    setLines((prev) => ({
+      ...prev,
+      [key]: { productId, colorId, qty: (prev[key]?.qty || 0) + qty },
+    }));
     setIsOpen(true);
   }, []);
 
-  const setQty = useCallback((productId, qty) => {
+  const setQty = useCallback((key, qty) => {
     setLines((prev) => {
       const next = { ...prev };
-      if (qty <= 0) delete next[productId];
-      else next[productId] = qty;
+      if (qty <= 0) delete next[key];
+      else next[key] = { ...next[key], qty };
       return next;
     });
   }, []);
 
-  const removeItem = useCallback((productId) => {
+  const removeItem = useCallback((key) => {
     setLines((prev) => {
       const next = { ...prev };
-      delete next[productId];
+      delete next[key];
       return next;
     });
   }, []);
@@ -51,12 +61,22 @@ export function CartProvider({ children }) {
   const items = useMemo(
     () =>
       Object.entries(lines)
-        .map(([id, qty]) => {
-          const product = PRODUCTS.find((p) => p.id === id);
-          return product ? { ...product, qty } : null;
+        .map(([key, line]) => {
+          const product = products.find((p) => p.id === line.productId);
+          if (!product) return null;
+          const color = product.colors.find((c) => c.id === line.colorId) || product.colors[0];
+          return {
+            ...product,
+            qty: line.qty,
+            lineId: key,
+            colorId: color.id,
+            colorway: color.name,
+            colorHex: color.hex,
+            price: product.price + (color.priceDelta || 0),
+          };
         })
         .filter(Boolean),
-    [lines]
+    [lines, products]
   );
 
   const itemCount = items.reduce((sum, i) => sum + i.qty, 0);
@@ -86,7 +106,7 @@ export function CartProvider({ children }) {
       const res = await fetch("/api/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: items.map((i) => ({ id: i.id, qty: i.qty })) }),
+        body: JSON.stringify({ items: items.map((i) => ({ id: i.id, colorId: i.colorId, qty: i.qty })) }),
       });
       order = await res.json();
       if (!res.ok) throw new Error(order.error || "Could not create order.");

@@ -59,9 +59,30 @@ export default function CartDrawer() {
                 </p>
               ) : (
                 items.map((item) => (
-                  <div key={item.id} style={{ display: "flex", gap: 14, padding: "18px 0", borderBottom: "1px solid var(--border)" }}>
-                    <div style={{ width: 64, height: 64, flexShrink: 0 }}>
-                      <ProductSwatch colorHex={item.colorHex} compact />
+                  <div key={item.lineId} style={{ display: "flex", gap: 14, padding: "18px 0", borderBottom: "1px solid var(--border)" }}>
+                    <div
+                      style={{
+                        width: 64,
+                        height: 64,
+                        flexShrink: 0,
+                        background: "var(--bg)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 8,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        overflow: "hidden",
+                      }}
+                    >
+                      {item.heroImage ? (
+                        <img
+                          src={item.heroImage}
+                          alt={item.name}
+                          style={{ width: "84%", height: "84%", objectFit: "contain" }}
+                        />
+                      ) : (
+                        <ProductSwatch colorHex={item.colorHex} compact />
+                      )}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
@@ -74,7 +95,7 @@ export default function CartDrawer() {
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <div className="mono" style={{ display: "flex", alignItems: "center", border: "1px solid var(--border-strong)" }}>
                           <button
-                            onClick={() => setQty(item.id, item.qty - 1)}
+                            onClick={() => setQty(item.lineId, item.qty - 1)}
                             style={{ width: 26, height: 26, cursor: "pointer" }}
                             aria-label={`Decrease quantity of ${item.name}`}
                           >
@@ -82,7 +103,7 @@ export default function CartDrawer() {
                           </button>
                           <span style={{ width: 26, textAlign: "center", fontSize: 12 }}>{item.qty}</span>
                           <button
-                            onClick={() => setQty(item.id, item.qty + 1)}
+                            onClick={() => setQty(item.lineId, item.qty + 1)}
                             style={{ width: 26, height: 26, cursor: "pointer" }}
                             aria-label={`Increase quantity of ${item.name}`}
                           >
@@ -90,7 +111,7 @@ export default function CartDrawer() {
                           </button>
                         </div>
                         <button
-                          onClick={() => removeItem(item.id)}
+                          onClick={() => removeItem(item.lineId)}
                           className="mono"
                           style={{ fontSize: 11, color: "var(--muted)", cursor: "pointer", textDecoration: "underline" }}
                         >
