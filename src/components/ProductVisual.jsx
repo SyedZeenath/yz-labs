@@ -12,14 +12,12 @@ function seedFrom(str) {
 // mouse users get the precise cursor-follow tilt via local hover state.
 export default function ProductVisual({ product, focused = false }) {
   const [isHovering, setIsHovering] = useState(false);
-  const [cutoutFailed, setCutoutFailed] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
   const reduceMotion = useReducedMotion();
   const wrapRef = useRef(null);
 
   const active = isHovering || focused;
-  const hasCutout = Boolean(product.heroCutout) && !cutoutFailed;
-  const hasImage = !hasCutout && Boolean(product.heroImage) && !imgFailed;
+  const hasImage = Boolean(product.heroImage) && !imgFailed;
 
   const seed = seedFrom(product.id);
   const bobDuration = 4.4 + (seed % 5) * 0.4;
@@ -110,11 +108,11 @@ export default function ProductVisual({ product, focused = false }) {
             transition: "scale 350ms cubic-bezier(0.16,1,0.3,1)",
           }}
         >
-          {hasCutout ? (
+          {hasImage ? (
             <motion.img
-              src={product.heroCutout}
+              src={product.heroImage}
               alt={product.name}
-              onError={() => setCutoutFailed(true)}
+              onError={() => setImgFailed(true)}
               animate={{
                 filter: active
                   ? "drop-shadow(0 34px 26px rgba(0,0,0,0.55)) drop-shadow(0 6px 10px rgba(0,0,0,0.4))"
@@ -124,34 +122,7 @@ export default function ProductVisual({ product, focused = false }) {
               style={{ width: "100%", height: "100%", objectFit: "contain" }}
             />
           ) : (
-            <div
-              style={{
-                width: "100%",
-                height: "100%",
-                borderRadius: 18,
-                overflow: "hidden",
-                boxShadow: active
-                  ? "0 30px 54px -20px rgba(0,0,0,0.7)"
-                  : "0 16px 32px -20px rgba(0,0,0,0.55)",
-                transition: "box-shadow 320ms ease",
-              }}
-            >
-              {hasImage ? (
-                <img
-                  src={product.heroImage}
-                  alt={product.name}
-                  onError={() => setImgFailed(true)}
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    objectFit: "cover",
-                    objectPosition: product.heroImagePosition || "center",
-                  }}
-                />
-              ) : (
-                <ProductSwatch colorHex={product.colorHex} />
-              )}
-            </div>
+            <ProductSwatch colorHex={product.colorHex} />
           )}
         </motion.div>
       </motion.div>

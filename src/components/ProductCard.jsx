@@ -24,7 +24,7 @@ export default function ProductCard({ product, onOpen }) {
   const handleAdd = (e) => {
     e.stopPropagation();
     if (!orderable) return;
-    addItem(product.id);
+    addItem(product.id, product.colors[0].id);
     setAdded(true);
     setTimeout(() => setAdded(false), 1200);
   };

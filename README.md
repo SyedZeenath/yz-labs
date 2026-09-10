@@ -6,8 +6,7 @@ Small-batch 3D-printed objects storefront — React + Vite frontend, Express bac
 
 - `src/` — React frontend (components, product data, cart state)
 - `server/index.js` — Express backend: creates Razorpay orders, verifies payments, serves the built frontend in production
-- `public/products/` — product photos (`cutout/` holds background-removed versions)
-- `scripts/remove-bg.mjs` — one-off script to regenerate background-removed product cutouts
+- `public/products/` — product photos, one folder per product (`hero.png` is the catalog/hero shot, shot on pure black)
 
 ## Local development
 

@@ -1,25 +1,25 @@
 import { useState, useEffect } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { PRODUCTS } from "../data/products.js";
+import { useProducts } from "../store/products.jsx";
 import Hero3D from "./Hero3D.jsx";
 import WebGLBoundary, { supportsWebGL } from "./WebGLBoundary.jsx";
 import { RevealLine, RevealFade } from "./HeroReveal.jsx";
 
-// Only the two products that read well as isolated, background-removed
-// pieces. Each chapter pairs with its real product record so the right-hand
-// spec panel shows genuine data, not filler.
+// Only the two products with a clean hero.png (shot on pure black — floats
+// against the page with no cutout/mask needed). Each chapter pairs with its
+// real product record so the right-hand spec panel shows genuine data, and
+// its `image` (below, via useProducts) comes from that same product's own
+// hero.png on disk — nothing hardcoded here.
 const CHAPTERS = [
   {
     tag: "STUDIO / 01",
     productId: "round-planter",
-    cutout: "/products/cutout/round/3.png",
     heading: ["Objects, printed", "layer by layer."],
     body: "Small-batch propagation planters, sliced and finished by hand. Not a warehouse in sight.",
   },
   {
     tag: "DESK / 02",
     productId: "step-planter",
-    cutout: "/products/cutout/step/1.png",
     heading: ["Built for the", "everyday surface."],
     body: "From windowsill to standing desk. Every piece is printed to fit rooms people actually live in.",
   },
@@ -33,7 +33,7 @@ const orbit = {
 };
 
 // Degraded-experience fallback for browsers without WebGL, or if the 3D
-// scene throws — a single flat cutout with the old float/orbit animation.
+// scene throws — the same flat hero.png with the old float/orbit animation.
 function FlatVisual({ chapter, reduceMotion }) {
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
@@ -49,32 +49,44 @@ function FlatVisual({ chapter, reduceMotion }) {
           pointerEvents: "none",
         }}
       />
-      <motion.div {...(reduceMotion ? {} : orbit)} style={{ position: "absolute", inset: 0 }}>
-        <img
-          src={chapter.cutout}
-          alt={chapter.tag}
-          style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "contain",
-            filter: "drop-shadow(0 34px 38px rgba(0,0,0,0.55)) drop-shadow(0 8px 14px rgba(0,0,0,0.35))",
-          }}
-        />
-      </motion.div>
+      {chapter.image && (
+        <motion.div {...(reduceMotion ? {} : orbit)} style={{ position: "absolute", inset: 0 }}>
+          <img
+            src={chapter.image}
+            alt={chapter.tag}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+              filter: "drop-shadow(0 34px 38px rgba(0,0,0,0.55)) drop-shadow(0 8px 14px rgba(0,0,0,0.35))",
+            }}
+          />
+        </motion.div>
+      )}
     </div>
   );
 }
 
 export default function Hero() {
+  const products = useProducts();
   const reduceMotion = useReducedMotion();
   const [active, setActive] = useState(0);
   const [webglOk] = useState(() => supportsWebGL());
 
+  // Each chapter's image is its product's own hero.png, resolved live from
+  // the folder scan (see store/products.jsx) — nothing hardcoded here, so
+  // swapping that file on disk is all it takes to change what shows.
+  const chapters = CHAPTERS.map((c) => ({
+    ...c,
+    image: products.find((p) => p.id === c.productId)?.heroImage ?? null,
+  }));
+  const imagesReady = chapters.every((c) => c.image);
+
   useEffect(() => {
     if (reduceMotion) return;
-    const id = setInterval(() => setActive((a) => (a + 1) % CHAPTERS.length), CYCLE_MS);
+    const id = setInterval(() => setActive((a) => (a + 1) % chapters.length), CYCLE_MS);
     return () => clearInterval(id);
-  }, [reduceMotion]);
+  }, [reduceMotion, chapters.length]);
 
   return (
     <section
@@ -125,7 +137,7 @@ export default function Hero() {
               AnimatePresence — both were confirmed unreliable in this
               environment for this exact always-mounted crossfade pattern. */}
           <div style={{ position: "relative" }}>
-            {CHAPTERS.map((chapter, i) => {
+            {chapters.map((chapter, i) => {
               const isActive = active === i;
               return (
                 <div
@@ -179,20 +191,20 @@ export default function Hero() {
               gets fed which chapter is active and crossfades its own
               textures internally, frame by frame. */}
           <div className="hero-visual" style={{ position: "relative", width: "100%", aspectRatio: "1", justifySelf: "center" }}>
-            {webglOk ? (
-              <WebGLBoundary fallback={<FlatVisual chapter={CHAPTERS[active]} reduceMotion={reduceMotion} />}>
-                <Hero3D chapters={CHAPTERS} activeIndex={active} reduceMotion={reduceMotion} />
+            {webglOk && imagesReady ? (
+              <WebGLBoundary fallback={<FlatVisual chapter={chapters[active]} reduceMotion={reduceMotion} />}>
+                <Hero3D chapters={chapters} activeIndex={active} reduceMotion={reduceMotion} />
               </WebGLBoundary>
             ) : (
-              <FlatVisual chapter={CHAPTERS[active]} reduceMotion={reduceMotion} />
+              <FlatVisual chapter={chapters[active]} reduceMotion={reduceMotion} />
             )}
           </div>
 
           {/* RIGHT — spec sheet, same stacked-crossfade treatment as the
               left column, reading real data per chapter's product. */}
           <div style={{ position: "relative" }}>
-            {CHAPTERS.map((chapter, i) => {
-              const product = PRODUCTS.find((p) => p.id === chapter.productId);
+            {chapters.map((chapter, i) => {
+              const product = products.find((p) => p.id === chapter.productId);
               const isActive = active === i;
               return (
                 <div
@@ -249,7 +261,7 @@ export default function Hero() {
           className="mono"
           style={{ display: "flex", flexDirection: "column", justifyContent: "space-between", height: 120, textAlign: "right" }}
         >
-          {CHAPTERS.map((chapter, i) => (
+          {chapters.map((chapter, i) => (
             <button
               key={chapter.tag}
               onClick={() => setActive(i)}

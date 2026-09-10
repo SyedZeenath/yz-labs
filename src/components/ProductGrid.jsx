@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { PRODUCTS, CATEGORIES } from "../data/products.js";
+import { useProducts, useCategories } from "../store/products.jsx";
 import ProductCard from "./ProductCard.jsx";
 import ProductScatter from "./ProductScatter.jsx";
 import ProductModal from "./ProductModal.jsx";
@@ -28,10 +28,18 @@ function useIsMobile() {
 }
 
 export default function ProductGrid() {
+  const products = useProducts();
+  const categories = useCategories();
   const [active, setActive] = useState("All");
-  const [selected, setSelected] = useState(null);
+  // Store just the id, not the product object — the image scan can still
+  // be resolving when a product is opened, and re-deriving from the live
+  // `products` list on every render means the modal picks up its photos
+  // the moment they arrive instead of being stuck with whatever (possibly
+  // imageless) snapshot existed at click time.
+  const [selectedId, setSelectedId] = useState(null);
+  const selected = products.find((p) => p.id === selectedId) || null;
   const isMobile = useIsMobile();
-  const filtered = active === "All" ? PRODUCTS : PRODUCTS.filter((p) => p.category === active);
+  const filtered = active === "All" ? products : products.filter((p) => p.category === active);
 
   return (
     <section id="catalog" className="section-frame" style={{ padding: "120px 0 100px" }}>
@@ -54,7 +62,7 @@ export default function ProductGrid() {
           </div>
 
           <div className="mono" style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-            {CATEGORIES.map((cat) => (
+            {categories.map((cat) => (
               <button
                 key={cat}
                 onClick={() => setActive(cat)}
@@ -91,15 +99,15 @@ export default function ProductGrid() {
             }}
           >
             {filtered.map((product) => (
-              <ProductCard key={product.id} product={product} onOpen={() => setSelected(product)} />
+              <ProductCard key={product.id} product={product} onOpen={() => setSelectedId(product.id)} />
             ))}
           </motion.div>
         ) : (
-          <ProductScatter key={active} products={filtered} onOpen={setSelected} />
+          <ProductScatter key={active} products={filtered} onOpen={(product) => setSelectedId(product.id)} />
         )}
       </div>
 
-      <ProductModal product={selected} onClose={() => setSelected(null)} />
+      <ProductModal product={selected} onClose={() => setSelectedId(null)} />
     </section>
   );
 }

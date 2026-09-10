@@ -30,7 +30,6 @@ function toRad(deg) {
 const DRAG_SUPPRESS_MS = 300;
 
 function OrbitTile({ product, angle, offsetDeg, onOpen, lastPanRef }) {
-  const hasCutout = Boolean(product.heroCutout);
   const theta = useTransform(angle, (a) => toRad(a + offsetDeg));
   const x = useTransform(theta, (t) => Math.cos(t) * RADIUS_X);
   const y = useTransform(theta, (t) => Math.sin(t) * RADIUS_Y);
@@ -74,10 +73,9 @@ function OrbitTile({ product, angle, offsetDeg, onOpen, lastPanRef }) {
         cursor: "grab",
       }}
     >
-      {/* Every tile is the same fixed-size rectangle regardless of source
-          image — cutouts float inside it via object-fit:contain, plain
-          photos fill it via object-fit:cover — so the ring reads as one
-          consistent shape no matter how many products are mixed in. */}
+      {/* Every tile is the same fixed-size rectangle — hero.png is shot on
+          pure black for every product, so it floats inside the tile with
+          nothing but a drop-shadow, no frame needed. */}
       <motion.div
         style={{
           pointerEvents: "none",
@@ -93,35 +91,19 @@ function OrbitTile({ product, angle, offsetDeg, onOpen, lastPanRef }) {
           justifyContent: "center",
         }}
       >
-        {hasCutout ? (
-          <img
-            src={product.heroCutout}
-            alt={product.name}
-            draggable={false}
-            onDragStart={(e) => e.preventDefault()}
-            style={{
-              width: "82%",
-              height: "82%",
-              objectFit: "contain",
-              display: "block",
-              filter: "drop-shadow(0 18px 20px rgba(0,0,0,0.5))",
-            }}
-          />
-        ) : (
-          <img
-            src={product.heroImage}
-            alt={product.name}
-            draggable={false}
-            onDragStart={(e) => e.preventDefault()}
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              display: "block",
-              objectPosition: product.heroImagePosition || "center",
-            }}
-          />
-        )}
+        <img
+          src={product.heroImage}
+          alt={product.name}
+          draggable={false}
+          onDragStart={(e) => e.preventDefault()}
+          style={{
+            width: "82%",
+            height: "82%",
+            objectFit: "contain",
+            display: "block",
+            filter: "drop-shadow(0 18px 20px rgba(0,0,0,0.5))",
+          }}
+        />
       </motion.div>
 
       <div

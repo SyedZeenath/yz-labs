@@ -3,12 +3,11 @@ import { motion, useScroll, useTransform } from "motion/react";
 import ProductSwatch from "./ProductSwatch.jsx";
 import RevealText from "./RevealText.jsx";
 import RevealBox from "./RevealBox.jsx";
+import { COLORWAYS } from "../data/products.js";
 
-const SWATCHES = [
-  { name: "Graphite", hex: "#2B2C31" },
-  { name: "Terracotta", hex: "#C97452" },
-  { name: "Bone", hex: "#D8D3C6" },
-];
+// Same palette every product's color picker draws from — this section is
+// just the full list of it, not a separate set of names.
+const SWATCHES = Object.values(COLORWAYS);
 
 const SPECS = [
   ["Materials", "PLA"],
@@ -76,10 +75,11 @@ export default function MaterialsSection() {
           <div className="crosshair" style={{ top: -6, left: -6 }} />
           <div className="crosshair" style={{ bottom: -6, right: -6 }} />
           <div
+            className="swatch-grid"
             style={{
               position: "relative",
               display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
+              gridTemplateColumns: "repeat(5, 1fr)",
               gap: 2,
               border: "1px solid var(--border)",
               overflow: "hidden",
@@ -139,6 +139,9 @@ export default function MaterialsSection() {
       <style>{`
         @media (max-width: 860px) {
           #materials-grid { grid-template-columns: 1fr !important; }
+        }
+        @media (max-width: 480px) {
+          .swatch-grid { grid-template-columns: repeat(3, 1fr) !important; }
         }
       `}</style>
     </section>

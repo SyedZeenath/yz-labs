@@ -13,10 +13,18 @@ export default function ProductModal({ product, onClose }) {
   const { addItem } = useCart();
   const [added, setAdded] = useState(false);
   const [displayProduct, setDisplayProduct] = useState(product);
+  const [selectedColorId, setSelectedColorId] = useState(product?.colors?.[0]?.id ?? null);
   const isOpen = Boolean(product);
 
   useEffect(() => {
-    if (product) setDisplayProduct(product);
+    // A newly-opened product resets the color selection back to its
+    // default — otherwise switching from a product with a "walnut" color
+    // straight to one that doesn't have that color would leave nothing
+    // selected.
+    if (product) {
+      setDisplayProduct(product);
+      setSelectedColorId(product.colors?.[0]?.id ?? null);
+    }
   }, [product]);
 
   useEffect(() => {
@@ -36,9 +44,11 @@ export default function ProductModal({ product, onClose }) {
   if (!displayProduct) return null;
 
   const p = displayProduct;
+  const selectedColor = p.colors.find((c) => c.id === selectedColorId) || p.colors[0];
+  const effectivePrice = p.price + (selectedColor?.priceDelta || 0);
 
   const handleAdd = () => {
-    addItem(p.id);
+    addItem(p.id, selectedColor.id);
     setAdded(true);
     setTimeout(() => setAdded(false), 1200);
   };
@@ -135,10 +145,9 @@ export default function ProductModal({ product, onClose }) {
           <h2 style={{ fontSize: 30, marginBottom: 12 }}>{p.name}</h2>
           <p style={{ fontSize: 14.5, color: "var(--fg-dim)", lineHeight: 1.6, marginBottom: 24 }}>{p.tagline}</p>
 
-          <dl className="mono" style={{ display: "flex", flexDirection: "column", marginBottom: 28 }}>
+          <dl className="mono" style={{ display: "flex", flexDirection: "column", marginBottom: 24 }}>
             {[
               ["Material", p.material],
-              ["Colorway", p.colorway],
               ["Dimensions", p.dims],
               ["Weight", p.weight],
             ].map(([label, value]) => (
@@ -160,11 +169,45 @@ export default function ProductModal({ product, onClose }) {
             ))}
           </dl>
 
+          <div style={{ marginBottom: 28 }}>
+            <p
+              className="mono"
+              style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}
+            >
+              Color — {selectedColor?.name}
+            </p>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              {p.colors.map((c) => {
+                const isSelected = c.id === selectedColorId;
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => setSelectedColorId(c.id)}
+                    aria-label={`Select ${c.name}${c.priceDelta ? `, +₹${c.priceDelta}` : ""}`}
+                    aria-pressed={isSelected}
+                    title={c.priceDelta ? `${c.name} (+₹${c.priceDelta})` : c.name}
+                    style={{
+                      width: 30,
+                      height: 30,
+                      borderRadius: "50%",
+                      padding: 0,
+                      cursor: "pointer",
+                      background: c.hex,
+                      border: isSelected ? "2px solid var(--accent)" : "1px solid var(--border-strong)",
+                      boxShadow: isSelected ? "0 0 0 3px var(--bg-elevated), 0 0 0 5px var(--accent)" : "none",
+                      transition: "box-shadow 150ms ease, border-color 150ms ease",
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </div>
+
           <div style={{ marginTop: "auto", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-            {p.price > 0 ? (
+            {effectivePrice > 0 ? (
               <>
                 <span className="mono" style={{ fontSize: 24, fontWeight: 600 }}>
-                  ₹{p.price}
+                  ₹{effectivePrice}
                 </span>
                 <button onClick={handleAdd} className="btn btn-primary">
                   {added ? "✓ Added to cart" : "+ Add to cart"}
