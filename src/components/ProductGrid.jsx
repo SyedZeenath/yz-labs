@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
+import { Link } from "react-router-dom";
 import { useProducts, useCategories } from "../store/products.jsx";
 import ProductCard from "./ProductCard.jsx";
 import ProductScatter from "./ProductScatter.jsx";
 import ProductModal from "./ProductModal.jsx";
 import RevealText from "./RevealText.jsx";
+import CategoryFilter from "./CategoryFilter.jsx";
 
 const gridVariants = {
   hidden: {},
@@ -61,27 +63,7 @@ export default function ProductGrid() {
             <RevealText as="h2" style={{ fontSize: "clamp(30px, 4vw, 46px)", maxWidth: 560 }} parts={["Current run."]} />
           </div>
 
-          <div className="mono" style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setActive(cat)}
-                style={{
-                  fontSize: 12,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
-                  padding: "9px 14px",
-                  border: "1px solid var(--border-strong)",
-                  background: active === cat ? "var(--fg)" : "transparent",
-                  color: active === cat ? "var(--bg)" : "var(--fg-dim)",
-                  cursor: "pointer",
-                  transition: "background 150ms ease, color 150ms ease",
-                }}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
+          <CategoryFilter categories={categories} active={active} onChange={setActive} />
         </div>
 
         {isMobile ? (
@@ -105,6 +87,12 @@ export default function ProductGrid() {
         ) : (
           <ProductScatter key={active} products={filtered} onOpen={(product) => setSelectedId(product.id)} />
         )}
+
+        <div style={{ display: "flex", justifyContent: "center", marginTop: 56 }}>
+          <Link to="/catalog" className="btn btn-ghost">
+            View all products →
+          </Link>
+        </div>
       </div>
 
       <ProductModal product={selected} onClose={() => setSelectedId(null)} />

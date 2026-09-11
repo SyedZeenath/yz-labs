@@ -70,7 +70,7 @@ const RAW_PRODUCTS = [
     dims: "220 × 110 × 90 mm",
     weight: "212 g",
     price: 2100,
-    status: "Made to order",
+    status: "In stock",
     batch: "B-021",
   },
   {
@@ -84,8 +84,23 @@ const RAW_PRODUCTS = [
     dims: "TBC",
     weight: "TBC",
     price: 1500,
-    status: "Made to order",
+    status: "In stock",
     batch: "B-026",
+  },
+  {
+    id: "ridge-wall-clock",
+    imageFolder: "clock",
+    name: "Ridge Wall Clock",
+    category: "Clocks",
+    tagline: "Diagonal ridge-and-peg face with brushed metal hands",
+    material: "PLA",
+    colors: [{ id: "walnut", priceDelta: 0 }],
+    dims: "TBC",
+    weight: "TBC",
+    // No real price set yet, falls back to DEFAULT_PRICE (500) below.
+    price: 0,
+    status: "In stock",
+    batch: "B-032",
   },
 ];
 

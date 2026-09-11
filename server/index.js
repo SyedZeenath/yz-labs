@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Razorpay from "razorpay";
+import nodemailer from "nodemailer";
 import { resolveProductPrice } from "../src/data/products.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -33,6 +34,50 @@ const razorpay = KEY_ID && KEY_SECRET ? new Razorpay({ key_id: KEY_ID, key_secre
 // every restart and isn't shared across server instances. Swap for a real
 // database (Postgres, Supabase, etc.) before accepting real payments.
 const orders = new Map();
+
+// Contact form mail. CONTACT_EMAIL_USER authenticates and sends; the
+// message lands in CONTACT_TO_EMAIL (defaults to that same address, so a
+// single Gmail account both sends and receives). Gmail requires an App
+// Password here, not the account's normal login password.
+const CONTACT_EMAIL_USER = process.env.CONTACT_EMAIL_USER;
+const CONTACT_EMAIL_PASS = process.env.CONTACT_EMAIL_PASS;
+const CONTACT_TO_EMAIL = process.env.CONTACT_TO_EMAIL || CONTACT_EMAIL_USER;
+
+if (!CONTACT_EMAIL_USER || !CONTACT_EMAIL_PASS) {
+  console.warn(
+    "[server] CONTACT_EMAIL_USER / CONTACT_EMAIL_PASS are not set in .env " +
+      "so /api/contact will return an error until they're added."
+  );
+}
+
+const mailer =
+  CONTACT_EMAIL_USER && CONTACT_EMAIL_PASS
+    ? nodemailer.createTransport({
+        service: "gmail",
+        auth: { user: CONTACT_EMAIL_USER, pass: CONTACT_EMAIL_PASS },
+      })
+    : null;
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Per-IP submission log, purely to stop the contact form being used to
+// blast the inbox. In-memory like `orders` above, so it resets on restart;
+// fine for the volume a small storefront actually gets.
+const contactSubmissions = new Map();
+const CONTACT_WINDOW_MS = 60 * 60 * 1000;
+const CONTACT_MAX_PER_WINDOW = 5;
+
+function isRateLimited(ip) {
+  const now = Date.now();
+  const recent = (contactSubmissions.get(ip) || []).filter((t) => now - t < CONTACT_WINDOW_MS);
+  contactSubmissions.set(ip, recent);
+  return recent.length >= CONTACT_MAX_PER_WINDOW;
+}
+
+function recordSubmission(ip) {
+  const recent = contactSubmissions.get(ip) || [];
+  recent.push(Date.now());
+  contactSubmissions.set(ip, recent);
+}
 
 const app = express();
 app.use(cors());
@@ -157,7 +202,57 @@ app.post("/api/verify-payment", (req, res) => {
 });
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, razorpayConfigured: Boolean(razorpay) });
+  res.json({ ok: true, razorpayConfigured: Boolean(razorpay), contactFormConfigured: Boolean(mailer) });
+});
+
+app.post("/api/contact", async (req, res) => {
+  if (!mailer) {
+    return res.status(500).json({ error: "The contact form isn't configured on the server yet." });
+  }
+
+  const ip = req.ip || req.socket?.remoteAddress || "unknown";
+  if (isRateLimited(ip)) {
+    return res.status(429).json({ error: "Too many messages sent recently. Please try again later." });
+  }
+
+  const { name, email, phone, message } = req.body || {};
+  const trimmedName = typeof name === "string" ? name.trim() : "";
+  const trimmedEmail = typeof email === "string" ? email.trim() : "";
+  const trimmedPhone = typeof phone === "string" ? phone.trim() : "";
+  const trimmedMessage = typeof message === "string" ? message.trim() : "";
+
+  if (!trimmedName || !trimmedEmail || !trimmedMessage) {
+    return res.status(400).json({ error: "Name, email, and message are required." });
+  }
+  if (!EMAIL_RE.test(trimmedEmail)) {
+    return res.status(400).json({ error: "That email address doesn't look valid." });
+  }
+  if (trimmedName.length > 100 || trimmedEmail.length > 200 || trimmedPhone.length > 30 || trimmedMessage.length > 4000) {
+    return res.status(400).json({ error: "One of the fields is too long." });
+  }
+
+  try {
+    await mailer.sendMail({
+      from: `"YZ Labs website" <${CONTACT_EMAIL_USER}>`,
+      to: CONTACT_TO_EMAIL,
+      replyTo: trimmedEmail,
+      subject: `New website enquiry from ${trimmedName}`,
+      text: [
+        `Name: ${trimmedName}`,
+        `Email: ${trimmedEmail}`,
+        trimmedPhone ? `Phone: ${trimmedPhone}` : null,
+        "",
+        trimmedMessage,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    });
+    recordSubmission(ip);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[server] contact form send failed:", err);
+    res.status(500).json({ error: "Could not send your message. Please try again or email us directly." });
+  }
 });
 
 // Product photos live directly on disk under public/products/<folder>/ —

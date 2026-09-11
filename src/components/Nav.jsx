@@ -1,9 +1,14 @@
 import { useEffect, useState } from "react";
 import { motion, useScroll, useMotionValueEvent } from "motion/react";
+import { Link } from "react-router-dom";
 import { useCart } from "../store/cart.jsx";
 
+// "Catalog" is a real route (the full, filterable product page) so it
+// always goes somewhere useful no matter which page Nav is rendered on.
+// The rest are hash anchors into sections that only exist on the homepage
+// — harmless no-ops elsewhere, same as before.
 const LINKS = [
-  { href: "#catalog", label: "Catalog" },
+  { to: "/catalog", label: "Catalog" },
   { href: "#process", label: "Process" },
   { href: "#materials", label: "Materials" },
   { href: "#contact", label: "Contact" },
@@ -40,7 +45,7 @@ export default function Nav() {
         className="container"
         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: 72 }}
       >
-        <a href="#top" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <Link to="/" style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <img
             src="/logo-circle.png"
             alt="YZ LABS"
@@ -51,22 +56,23 @@ export default function Nav() {
           <span className="wordmark" style={{ fontSize: 20, color: "var(--fg)" }}>
             YZ Labs
           </span>
-        </a>
+        </Link>
 
         <nav
           className="mono"
           style={{ display: "flex", gap: 32, fontSize: 13, textTransform: "uppercase", letterSpacing: "0.08em" }}
         >
-          {LINKS.map((l) => (
-            <a
-              key={l.href}
-              href={l.href}
-              className="nav-link"
-              style={{ color: "var(--fg-dim)", cursor: "pointer" }}
-            >
-              {l.label}
-            </a>
-          ))}
+          {LINKS.map((l) =>
+            l.to ? (
+              <Link key={l.to} to={l.to} className="nav-link" style={{ color: "var(--fg-dim)", cursor: "pointer" }}>
+                {l.label}
+              </Link>
+            ) : (
+              <a key={l.href} href={l.href} className="nav-link" style={{ color: "var(--fg-dim)", cursor: "pointer" }}>
+                {l.label}
+              </a>
+            )
+          )}
         </nav>
 
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
@@ -121,16 +127,18 @@ export default function Nav() {
           style={{ borderTop: "1px solid var(--border)", background: "var(--bg)" }}
         >
           <div className="container" style={{ display: "flex", flexDirection: "column", padding: "16px 0" }}>
-            {LINKS.map((l) => (
-              <a
-                key={l.href}
-                href={l.href}
-                onClick={() => setMenuOpen(false)}
-                style={{ padding: "14px 0", borderBottom: "1px solid var(--border)", fontSize: 14, textTransform: "uppercase", letterSpacing: "0.08em" }}
-              >
-                {l.label}
-              </a>
-            ))}
+            {LINKS.map((l) => {
+              const itemStyle = { padding: "14px 0", borderBottom: "1px solid var(--border)", fontSize: 14, textTransform: "uppercase", letterSpacing: "0.08em" };
+              return l.to ? (
+                <Link key={l.to} to={l.to} onClick={() => setMenuOpen(false)} style={itemStyle}>
+                  {l.label}
+                </Link>
+              ) : (
+                <a key={l.href} href={l.href} onClick={() => setMenuOpen(false)} style={itemStyle}>
+                  {l.label}
+                </a>
+              );
+            })}
           </div>
         </motion.div>
       )}

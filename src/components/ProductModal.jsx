@@ -174,7 +174,7 @@ export default function ProductModal({ product, onClose }) {
               className="mono"
               style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}
             >
-              Color — {selectedColor?.name}
+              Color: {selectedColor?.name}
             </p>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
               {p.colors.map((c) => {

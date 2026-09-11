@@ -12,3 +12,9 @@ services:
         sync: false
       - key: RAZORPAY_WEBHOOK_SECRET
         sync: false
+      - key: CONTACT_EMAIL_USER
+        sync: false
+      - key: CONTACT_EMAIL_PASS
+        sync: false
+      - key: CONTACT_TO_EMAIL
+        sync: false

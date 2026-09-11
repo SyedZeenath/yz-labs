@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from "motion/react";
+import { Link } from "react-router-dom";
 import { useCart } from "../store/cart.jsx";
 import ProductSwatch from "./ProductSwatch.jsx";
 
@@ -143,6 +144,11 @@ export default function CartDrawer() {
               </button>
               <p className="mono" style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 10, textAlign: "center" }}>
                 UPI · Cards · Netbanking · Wallets
+              </p>
+              <p className="mono" style={{ fontSize: 10, color: "var(--muted)", marginTop: 8, textAlign: "center" }}>
+                By checking out you agree to our{" "}
+                <Link to="/terms" style={{ textDecoration: "underline" }}>Terms</Link> and{" "}
+                <Link to="/refund-policy" style={{ textDecoration: "underline" }}>Refund Policy</Link>.
               </p>
               <AnimatePresence>
                 {notice && (

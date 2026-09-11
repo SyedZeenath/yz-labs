@@ -1,10 +1,14 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import RevealText from "./RevealText.jsx";
 import RevealBox from "./RevealBox.jsx";
+import ContactModal from "./ContactModal.jsx";
+import { LEGAL_LINKS } from "../pages/LegalLayout.jsx";
 
 export default function CTAFooter() {
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [contactOpen, setContactOpen] = useState(false);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -71,7 +75,7 @@ export default function CTAFooter() {
           style={{
             display: "flex",
             justifyContent: "space-between",
-            alignItems: "flex-end",
+            alignItems: "center",
             flexWrap: "wrap",
             gap: 24,
             paddingTop: 40,
@@ -92,18 +96,92 @@ export default function CTAFooter() {
             </span>
           </div>
 
-          <div className="mono" style={{ display: "flex", gap: 24, fontSize: 12, color: "var(--muted)", flexWrap: "wrap" }}>
-            <a href="#catalog" style={{ cursor: "pointer" }}>Catalog</a>
-            <a href="#process" style={{ cursor: "pointer" }}>Process</a>
-            <a href="mailto:yzlabs.store@gmail.com" style={{ cursor: "pointer" }}>yzlabs.store@gmail.com</a>
-            <a href="https://www.instagram.com/yzlabs.store/" target="_blank" rel="noreferrer" style={{ cursor: "pointer" }}>Instagram</a>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <button onClick={() => setContactOpen(true)} aria-label="Email YZ Labs" className="social-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <path d="M3.5 7l8.5 6 8.5-6" />
+              </svg>
+            </button>
+            <a
+              href="https://www.instagram.com/yzlabs.store/"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="YZ Labs on Instagram"
+              className="social-icon"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="5" />
+                <circle cx="12" cy="12" r="4" />
+                <circle cx="17.5" cy="6.5" r="1.1" fill="currentColor" stroke="none" />
+              </svg>
+            </a>
           </div>
 
           <p className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
             © {new Date().getFullYear()} YZ LABS · PRINTED, NOT MASS-PRODUCED
           </p>
         </RevealBox>
+
+        <RevealBox
+          duration={0.7}
+          y={12}
+          blur={2}
+          amount={0.6}
+          baseDelay={0.1}
+          className="mono"
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            gap: 22,
+            flexWrap: "wrap",
+            fontSize: 11,
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            color: "var(--muted)",
+            paddingTop: 22,
+            paddingBottom: 36,
+            borderTop: "1px solid var(--border)",
+          }}
+        >
+          {LEGAL_LINKS.map((l) => (
+            <Link key={l.to} to={l.to} className="legal-link">
+              {l.label}
+            </Link>
+          ))}
+        </RevealBox>
       </div>
+
+      <ContactModal open={contactOpen} onClose={() => setContactOpen(false)} />
+
+      <style>{`
+        .social-icon {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 38px;
+          height: 38px;
+          border-radius: 50%;
+          border: 1px solid var(--border-strong);
+          color: var(--fg-dim);
+          transition: color 150ms ease, border-color 150ms ease, background 150ms ease, transform 150ms ease;
+        }
+        .social-icon:hover {
+          color: #fff;
+          background: var(--accent);
+          border-color: var(--accent);
+          transform: translateY(-2px);
+        }
+        .legal-link {
+          position: relative;
+          color: var(--muted);
+          cursor: pointer;
+          transition: color 150ms ease;
+        }
+        .legal-link:hover {
+          color: var(--fg-dim);
+        }
+      `}</style>
     </footer>
   );
 }

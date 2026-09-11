@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { motion, useMotionValue, useTransform, useAnimationFrame, animate, useReducedMotion } from "motion/react";
 
 // A circular "orbit" gallery: tiles sit at even angles around an ellipse and
@@ -10,12 +10,30 @@ import { motion, useMotionValue, useTransform, useAnimationFrame, animate, useRe
 // tiles nearer the top of the ellipse read larger and brighter, tiles
 // nearer the bottom read smaller and dimmer, so the orbit motion is legible
 // at a glance without anything visually tilting.
-const RADIUS_X = 400;
-const RADIUS_Y = 210;
+//
+// The ellipse itself was tuned to feel right at REFERENCE_COUNT tiles. A
+// fixed radius stopped working once the catalog's actual size drifted away
+// from that: with only 3-4 tiles it left huge empty gaps and the same
+// angular speed reads as a fast, sparse blade sweeping past (the "weird"
+// rotation); with a lot more it would start crowding tiles together. So
+// the radius scales with the current tile count instead of staying fixed:
+// shrink for a small catalog, grow for a large one, unchanged right at
+// REFERENCE_COUNT. sqrt (not linear) keeps that scaling gentle at both
+// ends rather than letting a very small or very large count run away.
+const BASE_RADIUS_X = 400;
+const BASE_RADIUS_Y = 210;
+const REFERENCE_COUNT = 7;
+const MIN_RADIUS_SCALE = 0.45;
+const MAX_RADIUS_SCALE = 1.8;
 const TILE_WIDTH = 148;
 const TILE_HEIGHT = 182;
 const AUTO_DEG_PER_SEC = 6;
 const DRAG_DEG_PER_PX = 0.35;
+
+function radiusScaleFor(count) {
+  const scale = Math.sqrt(count / REFERENCE_COUNT);
+  return Math.min(MAX_RADIUS_SCALE, Math.max(MIN_RADIUS_SCALE, scale));
+}
 
 function toRad(deg) {
   return (deg * Math.PI) / 180;
@@ -29,10 +47,38 @@ function toRad(deg) {
 // whenever it happened. A short time window fixes that — it always expires.
 const DRAG_SUPPRESS_MS = 300;
 
-function OrbitTile({ product, angle, offsetDeg, onOpen, lastPanRef }) {
+// The thin ellipse the tiles ride around, like the edge of a record. Purely
+// decorative and always behind every tile (it renders first in the DOM,
+// tiles never drop below zIndex 0, so DOM order alone settles the stacking).
+// Drawn at the exact same radiusX/radiusY as the tiles themselves, so it
+// always traces their real path, never an approximation of it.
+function TrackRing({ radiusX, radiusY }) {
+  const w = radiusX * 2;
+  const h = radiusY * 2;
+  return (
+    <svg
+      width={w}
+      height={h}
+      viewBox={`0 0 ${w} ${h}`}
+      aria-hidden="true"
+      style={{
+        position: "absolute",
+        left: "50%",
+        top: "50%",
+        transform: "translate(-50%, -50%)",
+        pointerEvents: "none",
+        overflow: "visible",
+      }}
+    >
+      <ellipse cx={radiusX} cy={radiusY} rx={radiusX} ry={radiusY} fill="none" strokeWidth={1} style={{ stroke: "var(--border-strong)" }} />
+    </svg>
+  );
+}
+
+function OrbitTile({ product, angle, offsetDeg, radiusX, radiusY, onOpen, lastPanRef }) {
   const theta = useTransform(angle, (a) => toRad(a + offsetDeg));
-  const x = useTransform(theta, (t) => Math.cos(t) * RADIUS_X);
-  const y = useTransform(theta, (t) => Math.sin(t) * RADIUS_Y);
+  const x = useTransform(theta, (t) => Math.cos(t) * radiusX);
+  const y = useTransform(theta, (t) => Math.sin(t) * radiusY);
   // Depth reads from vertical position, not front/back on the ellipse: -1
   // at the very top, +1 at the very bottom (screen y grows downward).
   const depthY = useTransform(theta, (t) => -Math.sin(t));
@@ -130,6 +176,11 @@ export default function ProductScatter({ products, onOpen }) {
   const panDistance = useRef(0);
   const lastPan = useRef({ distance: 0, endedAt: 0 });
 
+  const { radiusX, radiusY } = useMemo(() => {
+    const scale = radiusScaleFor(products.length || 1);
+    return { radiusX: BASE_RADIUS_X * scale, radiusY: BASE_RADIUS_Y * scale };
+  }, [products.length]);
+
   useAnimationFrame((_, delta) => {
     if (reduceMotion || isDragging.current || isSettling.current) return;
     angle.set(angle.get() + (AUTO_DEG_PER_SEC * delta) / 1000);
@@ -198,12 +249,16 @@ export default function ProductScatter({ products, onOpen }) {
         <span style={{ width: 18, height: 1, background: "var(--muted)" }} />
       </div>
 
+      <TrackRing radiusX={radiusX} radiusY={radiusY} />
+
       {products.map((product, i) => (
         <OrbitTile
           key={product.id}
           product={product}
           angle={angle}
           offsetDeg={offsets[i]}
+          radiusX={radiusX}
+          radiusY={radiusY}
           onOpen={onOpen}
           lastPanRef={lastPan}
         />
