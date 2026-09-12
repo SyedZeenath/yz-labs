@@ -1,185 +1,129 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
-import RevealText from "./RevealText.jsx";
 import RevealBox from "./RevealBox.jsx";
 import ContactModal from "./ContactModal.jsx";
-import { LEGAL_LINKS } from "../pages/LegalLayout.jsx";
 
+// The closing beat, not a legal directory — Terms/Privacy/Refund/Shipping
+// links moved into the cart drawer next to checkout (where someone actually
+// needs them), and the brand row (logo/wordmark Nav already shows on every
+// page) came out too. What's left is the one thing a footer full of small
+// text couldn't make room for: two big, real ways to actually reach the
+// studio, filling the space instead of leaving it empty above a cramped
+// strip of links.
 export default function CTAFooter() {
-  const [email, setEmail] = useState("");
-  const [submitted, setSubmitted] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!email.trim()) return;
-    setSubmitted(true);
-  };
-
   return (
-    <footer id="contact" className="section-frame" style={{ padding: "120px 0 0" }}>
-      <div className="container">
-        <div className="eyebrow" style={{ marginBottom: 20 }}>
-          05 / Get notified
-        </div>
+    <footer className="section-frame" style={{ padding: "100px 0 48px", position: "relative", overflow: "hidden" }}>
+      <div className="grid-overlay" aria-hidden />
+      <div className="container" style={{ position: "relative", textAlign: "center" }}>
+        <div className="crosshair" style={{ top: 0, left: -6 }} aria-hidden />
+        <div className="crosshair" style={{ top: 0, right: -6 }} aria-hidden />
 
-        <RevealText
-          as="h2"
-          y={34}
-          blur={14}
-          stagger={0.05}
-          style={{ fontSize: "clamp(34px, 6vw, 74px)", maxWidth: 780, marginBottom: 40 }}
-          parts={["Next batch drops soon."]}
-        />
-
-        <RevealBox duration={0.7} y={18} blur={4} amount={0.8}>
-          {submitted ? (
-            <p className="mono" style={{ fontSize: 14, color: "var(--accent)", marginBottom: 60 }}>
-              ✓ You're on the list. We'll email you when the next batch opens.
-            </p>
-          ) : (
-            <form
-              onSubmit={handleSubmit}
-              style={{ display: "flex", gap: 0, maxWidth: 480, marginBottom: 60, flexWrap: "wrap" }}
-            >
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@email.com"
-                className="mono"
-                style={{
-                  flex: "1 1 240px",
-                  background: "transparent",
-                  border: "1px solid var(--border-strong)",
-                  borderRight: "none",
-                  padding: "16px 18px",
-                  color: "var(--fg)",
-                  fontSize: 14,
-                }}
-              />
-              <button type="submit" className="btn btn-primary" style={{ borderRadius: 0 }}>
-                Join waitlist
-              </button>
-            </form>
-          )}
+        <RevealBox duration={0.7} y={20} blur={6} amount={0.6}>
+          <div className="eyebrow" style={{ justifyContent: "center", marginBottom: 20 }}>
+            Get in touch
+          </div>
+          <h2 style={{ fontSize: "clamp(28px, 3.6vw, 44px)" }}>Say hello.</h2>
         </RevealBox>
 
         <RevealBox
+          index={1}
           duration={0.7}
-          y={16}
-          blur={3}
+          y={20}
+          blur={6}
           amount={0.6}
-          baseDelay={0.08}
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: 24,
-            paddingTop: 40,
-            paddingBottom: 32,
-            borderTop: "1px solid var(--border)",
-          }}
+          style={{ display: "flex", gap: "clamp(28px, 6vw, 72px)", justifyContent: "center", flexWrap: "wrap", margin: "64px 0 72px" }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <img
-              src="/logo-circle.png"
-              alt="YZ LABS"
-              width={32}
-              height={32}
-              style={{ display: "block", borderRadius: "50%", boxShadow: "0 0 0 1px var(--border-strong)" }}
-            />
-            <span className="wordmark" style={{ fontSize: 16, color: "var(--fg)" }}>
-              YZ Labs
-            </span>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <button onClick={() => setContactOpen(true)} aria-label="Email YZ Labs" className="social-icon">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <button onClick={() => setContactOpen(true)} aria-label="Email YZ Labs" className="big-social">
+            <span className="big-social-ring" aria-hidden />
+            <span className="big-social-circle">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="5" width="18" height="14" rx="2" />
                 <path d="M3.5 7l8.5 6 8.5-6" />
               </svg>
-            </button>
-            <a
-              href="https://www.instagram.com/yzlabs.store/"
-              target="_blank"
-              rel="noreferrer"
-              aria-label="YZ Labs on Instagram"
-              className="social-icon"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            </span>
+            <span className="mono big-social-label">Email</span>
+          </button>
+
+          <a
+            href="https://www.instagram.com/yzlabs.store/"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="YZ Labs on Instagram"
+            className="big-social"
+          >
+            <span className="big-social-ring" aria-hidden />
+            <span className="big-social-circle">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="5" />
-                <circle cx="12" cy="12" r="4" />
-                <circle cx="17.5" cy="6.5" r="1.1" fill="currentColor" stroke="none" />
+                <circle cx="12" cy="12" r="4.2" />
+                <circle cx="17.6" cy="6.4" r="1.15" fill="currentColor" stroke="none" />
               </svg>
-            </a>
-          </div>
-
-          <p className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
-            © {new Date().getFullYear()} YZ LABS · PRINTED, NOT MASS-PRODUCED
-          </p>
+            </span>
+            <span className="mono big-social-label">Instagram</span>
+          </a>
         </RevealBox>
 
-        <RevealBox
-          duration={0.7}
-          y={12}
-          blur={2}
-          amount={0.6}
-          baseDelay={0.1}
-          className="mono"
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            gap: 22,
-            flexWrap: "wrap",
-            fontSize: 11,
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-            color: "var(--muted)",
-            paddingTop: 22,
-            paddingBottom: 36,
-            borderTop: "1px solid var(--border)",
-          }}
-        >
-          {LEGAL_LINKS.map((l) => (
-            <Link key={l.to} to={l.to} className="legal-link">
-              {l.label}
-            </Link>
-          ))}
-        </RevealBox>
+        <p className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
+          © {new Date().getFullYear()} YZ LABS · PRINTED, NOT MASS-PRODUCED
+        </p>
       </div>
 
       <ContactModal open={contactOpen} onClose={() => setContactOpen(false)} />
 
       <style>{`
-        .social-icon {
-          display: inline-flex;
+        .big-social {
+          position: relative;
+          display: flex;
+          flex-direction: column;
           align-items: center;
-          justify-content: center;
-          width: 38px;
-          height: 38px;
+          gap: 14px;
+          cursor: pointer;
+        }
+        .big-social-circle {
+          position: relative;
+          width: 96px;
+          height: 96px;
           border-radius: 50%;
           border: 1px solid var(--border-strong);
+          display: flex;
+          align-items: center;
+          justify-content: center;
           color: var(--fg-dim);
-          transition: color 150ms ease, border-color 150ms ease, background 150ms ease, transform 150ms ease;
+          background: var(--bg);
+          transition: color 200ms ease, background 200ms ease, border-color 200ms ease, transform 200ms ease;
         }
-        .social-icon:hover {
+        .big-social-ring {
+          position: absolute;
+          inset: 0;
+          border-radius: 50%;
+          border: 1px solid var(--accent);
+          opacity: 0;
+          animation: big-social-pulse 2.8s ease-out infinite;
+        }
+        .big-social:nth-child(2) .big-social-ring { animation-delay: 1.4s; }
+        .big-social:hover .big-social-circle {
           color: #fff;
           background: var(--accent);
           border-color: var(--accent);
-          transform: translateY(-2px);
+          transform: scale(1.06);
         }
-        .legal-link {
-          position: relative;
+        .big-social-label {
+          font-size: 11px;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
           color: var(--muted);
-          cursor: pointer;
-          transition: color 150ms ease;
+          transition: color 200ms ease;
         }
-        .legal-link:hover {
-          color: var(--fg-dim);
+        .big-social:hover .big-social-label {
+          color: var(--fg);
+        }
+        @keyframes big-social-pulse {
+          0% { transform: scale(1); opacity: 0.45; }
+          100% { transform: scale(1.35); opacity: 0; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .big-social-ring { animation: none; opacity: 0; }
         }
       `}</style>
     </footer>

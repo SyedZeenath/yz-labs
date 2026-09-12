@@ -168,7 +168,7 @@ function OrbitTile({ product, angle, offsetDeg, radiusX, radiusY, onOpen, lastPa
   );
 }
 
-export default function ProductScatter({ products, onOpen }) {
+export default function ProductScatter({ products, onOpen, hideHint }) {
   const reduceMotion = useReducedMotion();
   const angle = useMotionValue(0);
   const isDragging = useRef(false);
@@ -228,26 +228,34 @@ export default function ProductScatter({ products, onOpen }) {
         touchAction: "none",
       }}
     >
-      <div
-        className="mono"
-        style={{
-          position: "absolute",
-          top: 20,
-          right: 24,
-          fontSize: 11,
-          color: "var(--muted)",
-          letterSpacing: "0.14em",
-          textTransform: "uppercase",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          zIndex: 30,
-          pointerEvents: "none",
-        }}
-      >
-        Drag to rotate
-        <span style={{ width: 18, height: 1, background: "var(--muted)" }} />
-      </div>
+      {/* Anchored to this box's own top edge, not the bottom — the box can
+          be taller than the viewport that's actually showing it (the
+          Journey's catalog chapter pins it inside a shorter visible area),
+          and a bottom-anchored hint would sit below the box's overflowing
+          lower edge, off-screen. The top edge is always the part that's
+          actually visible. */}
+      {!hideHint && (
+        <div
+          className="mono"
+          style={{
+            position: "absolute",
+            top: 20,
+            right: 24,
+            fontSize: 11,
+            color: "var(--muted)",
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            zIndex: 30,
+            pointerEvents: "none",
+          }}
+        >
+          Drag to rotate
+          <span style={{ width: 18, height: 1, background: "var(--muted)" }} />
+        </div>
+      )}
 
       <TrackRing radiusX={radiusX} radiusY={radiusY} />
 
