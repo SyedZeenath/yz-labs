@@ -7,7 +7,9 @@ import { clamp01, easeOutCubic } from "../lib/particleField.js";
 // so the canvas doesn't draw `progress` directly; it chases a smoothed
 // value toward it every frame instead. That's what makes formation read
 // as unhurried, weighted motion rather than snapping instantly to
-// wherever the scrollbar happens to be.
+// wherever the scrollbar happens to be. This is the default for every
+// chapter; pass a smaller `catchUp` prop to slow one call down further
+// (e.g. Hero's load-triggered reveal, which isn't scroll-paced at all).
 const CATCH_UP = 0.06;
 const SETTLE_EPSILON = 0.0008;
 
@@ -24,8 +26,10 @@ const SETTLE_EPSILON = 0.0008;
 // as "materializing out of the world" instead of "a sprite fading in."
 // `targetBox` places the formed shape's own on-screen rectangle within
 // that full canvas; `targetPoints` stay normalized 0..1 within that box.
-export default function useParticleField({ canvasRef, targetPoints, progress, width, height, targetBox, particleSize = 1.6 }) {
+export default function useParticleField({ canvasRef, targetPoints, progress, width, height, targetBox, particleSize = 1.6, catchUp = CATCH_UP }) {
   const dprRef = useRef(1);
+  const catchUpRef = useRef(catchUp);
+  catchUpRef.current = catchUp;
   const progressRef = useRef(progress);
   const particlesRef = useRef([]);
   const drawnRef = useRef(progress);
@@ -90,7 +94,7 @@ export default function useParticleField({ canvasRef, targetPoints, progress, wi
         rafRef.current = null;
         return;
       }
-      drawnRef.current += diff * CATCH_UP;
+      drawnRef.current += diff * catchUpRef.current;
       draw(drawnRef.current);
       rafRef.current = requestAnimationFrame(tick);
     }

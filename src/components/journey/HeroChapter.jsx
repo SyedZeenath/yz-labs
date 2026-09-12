@@ -6,6 +6,11 @@ import useViewportSize from "../../hooks/useViewportSize.js";
 
 const FEATURED_ID = "round-planter";
 
+// Slower than useParticleField's own default catch-up (0.06) — this is the
+// very first thing a visitor sees, so it's worth lingering on rather than
+// resolving as quickly as the scroll-scrubbed formations later in the page.
+const HERO_ENTRANCE_CATCH_UP = 0.028;
+
 // Same top position as every other chapter's mark (Catalog, GetNotified,
 // GetInTouch) — the whole point is that "STUDIO" reads as the same kind of
 // thing as "CATALOG" a screen later, not a smaller, differently-styled
@@ -130,6 +135,7 @@ export default function HeroChapter({ progress, active, narrow }) {
     height: viewport.height,
     targetBox,
     particleSize: 1.5,
+    catchUp: HERO_ENTRANCE_CATCH_UP,
   });
 
   // Forms alongside the product photo above, same as Catalog's "CATALOG"
@@ -142,6 +148,7 @@ export default function HeroChapter({ progress, active, narrow }) {
     progress: headingP,
     width: viewport.width,
     height: viewport.height,
+    catchUp: HERO_ENTRANCE_CATCH_UP,
     targetBox: headingTargetBox,
     particleSize: narrow ? 1.3 : 1.8,
   });

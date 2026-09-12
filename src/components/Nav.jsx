@@ -32,9 +32,7 @@ export default function Nav() {
             height={56}
             style={{ display: "block", borderRadius: "50%", boxShadow: "0 0 0 1px var(--border-strong)" }}
           />
-          <span className="wordmark" style={{ fontSize: 28, color: "var(--fg)" }}>
-            YZ Labs
-          </span>
+          <img src="/logo-wordmark.png" alt="YZ Labs" height={28} style={{ display: "block", width: "auto" }} />
         </Link>
 
         <button

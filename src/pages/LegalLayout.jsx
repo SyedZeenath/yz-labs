@@ -30,9 +30,7 @@ export default function LegalLayout({ eyebrow, title, updated, children }) {
               height={36}
               style={{ display: "block", borderRadius: "50%", boxShadow: "0 0 0 1px var(--border-strong)" }}
             />
-            <span className="wordmark" style={{ fontSize: 18, color: "var(--fg)" }}>
-              YZ Labs
-            </span>
+            <img src="/logo-wordmark.png" alt="YZ Labs" height={18} style={{ display: "block", width: "auto" }} />
           </Link>
           <Link
             to="/"

@@ -17,7 +17,6 @@
   --font-display: "Sora", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
   --font-body: "Inter", system-ui, sans-serif;
-  --font-wordmark: "Major Mono Display", var(--font-mono), monospace;
 
   --container: 1320px;
   --radius: 2px;
@@ -107,13 +106,6 @@ img {
 .mono {
   font-family: var(--font-mono);
   letter-spacing: 0.02em;
-}
-
-.wordmark {
-  font-family: var(--font-wordmark);
-  font-weight: 400;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
 }
 
 .eyebrow {
