@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 const EMPTY = { name: "", email: "", phone: "", message: "" };
 
@@ -63,13 +64,23 @@ export default function ContactModal({ open, onClose }) {
     width: "100%",
     background: "transparent",
     border: "1px solid var(--border-strong)",
-    padding: "13px 14px",
+    padding: "10px 14px",
     color: "var(--fg)",
     fontSize: 14,
     fontFamily: "inherit",
   };
 
-  return (
+  // Portaled to document.body — a position:fixed element nested inside any
+  // transformed ancestor (Journey's chapterMotion wrapper applies a CSS
+  // transform to every chapter for the scroll-driven camera pan/zoom) stops
+  // being positioned relative to the viewport and gets trapped inside that
+  // ancestor's box instead, per the CSS spec. That's what made this modal
+  // render shifted up and cropped behind the Nav when opened from
+  // GetInTouchChapter — its close button ended up outside the clickable
+  // area entirely. Rendering here escapes the whole chapter tree so the
+  // modal is always genuinely viewport-fixed (see ProductModal, which
+  // already needed the same fix).
+  return createPortal(
     <>
       <div
         onClick={onClose}
@@ -98,12 +109,12 @@ export default function ContactModal({ open, onClose }) {
           pointerEvents: open ? "auto" : "none",
           transition: "opacity 380ms cubic-bezier(0.16,1,0.3,1), transform 380ms cubic-bezier(0.16,1,0.3,1)",
           zIndex: 131,
-          width: "min(480px, 92vw)",
-          maxHeight: "88vh",
+          width: "min(440px, 94vw)",
+          maxHeight: "calc(100svh - 32px)",
           overflowY: "auto",
           background: "var(--bg-elevated)",
           border: "1px solid var(--border-strong)",
-          padding: "36px 32px 32px",
+          padding: "clamp(20px, 4vh, 32px) clamp(20px, 4vw, 28px) clamp(18px, 3.5vh, 28px)",
         }}
       >
         <button
@@ -129,11 +140,11 @@ export default function ContactModal({ open, onClose }) {
           ×
         </button>
 
-        <div className="eyebrow" style={{ marginBottom: 14 }}>
+        <div className="eyebrow" style={{ marginBottom: "clamp(6px, 1.5vh, 12px)" }}>
           Get in touch
         </div>
-        <h2 style={{ fontSize: 26, marginBottom: 8 }}>Send us a message</h2>
-        <p style={{ fontSize: 13.5, color: "var(--fg-dim)", lineHeight: 1.6, marginBottom: 26 }}>
+        <h2 style={{ fontSize: 23, marginBottom: 6 }}>Send us a message</h2>
+        <p style={{ fontSize: 13, color: "var(--fg-dim)", lineHeight: 1.5, marginBottom: "clamp(10px, 2.2vh, 20px)" }}>
           We read every message ourselves and usually reply within 1-2 business days.
         </p>
 
@@ -142,7 +153,7 @@ export default function ContactModal({ open, onClose }) {
             ✓ Message sent. We'll get back to you soon.
           </p>
         ) : (
-          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "clamp(8px, 1.6vh, 12px)" }}>
             <label className="mono" style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
               Name
               <input
@@ -152,7 +163,7 @@ export default function ContactModal({ open, onClose }) {
                 value={fields.name}
                 onChange={setField("name")}
                 placeholder="Your name"
-                style={{ ...inputStyle, marginTop: 8 }}
+                style={{ ...inputStyle, marginTop: 6 }}
               />
             </label>
 
@@ -165,7 +176,7 @@ export default function ContactModal({ open, onClose }) {
                 value={fields.email}
                 onChange={setField("email")}
                 placeholder="you@email.com"
-                style={{ ...inputStyle, marginTop: 8 }}
+                style={{ ...inputStyle, marginTop: 6 }}
               />
             </label>
 
@@ -177,7 +188,7 @@ export default function ContactModal({ open, onClose }) {
                 value={fields.phone}
                 onChange={setField("phone")}
                 placeholder="+91 00000 00000"
-                style={{ ...inputStyle, marginTop: 8 }}
+                style={{ ...inputStyle, marginTop: 6 }}
               />
             </label>
 
@@ -186,11 +197,11 @@ export default function ContactModal({ open, onClose }) {
               <textarea
                 required
                 maxLength={4000}
-                rows={4}
+                rows={3}
                 value={fields.message}
                 onChange={setField("message")}
                 placeholder="How can we help?"
-                style={{ ...inputStyle, marginTop: 8, resize: "vertical", fontFamily: "inherit" }}
+                style={{ ...inputStyle, marginTop: 6, resize: "vertical", fontFamily: "inherit" }}
               />
             </label>
 
@@ -211,6 +222,7 @@ export default function ContactModal({ open, onClose }) {
           </form>
         )}
       </div>
-    </>
+    </>,
+    document.body
   );
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import ProductGallery from "./ProductGallery.jsx";
 import { useCart } from "../store/cart.jsx";
 
@@ -53,7 +54,13 @@ export default function ProductModal({ product, onClose }) {
     setTimeout(() => setAdded(false), 1200);
   };
 
-  return (
+  // Portaled to document.body — a position:fixed element nested inside any
+  // transformed ancestor (Journey's chapterMotion wrapper applies a CSS
+  // transform to every chapter for the scroll-driven camera pan/zoom) stops
+  // being positioned relative to the viewport and gets trapped inside that
+  // ancestor's box instead, per the CSS spec. Rendering here escapes the
+  // whole chapter tree so the modal is always genuinely viewport-fixed.
+  return createPortal(
     <>
       <div
         onClick={onClose}
@@ -77,10 +84,14 @@ export default function ProductModal({ product, onClose }) {
           position: "fixed",
           top: "50%",
           left: "50%",
-          transform: isOpen ? "translate(-50%, -50%) scale(1)" : "translate(-50%, -50%) scale(0.94)",
+          transform: isOpen
+            ? "translate(-50%, -50%) translateY(0) scale(1)"
+            : "translate(-50%, -50%) translateY(26px) scale(0.82)",
           opacity: isOpen ? 1 : 0,
+          filter: isOpen ? "blur(0px)" : "blur(14px)",
           pointerEvents: isOpen ? "auto" : "none",
-          transition: "opacity 460ms cubic-bezier(0.16,1,0.3,1), transform 460ms cubic-bezier(0.16,1,0.3,1)",
+          transition:
+            "opacity 520ms cubic-bezier(0.16,1,0.3,1), transform 560ms cubic-bezier(0.16,1,0.3,1), filter 480ms ease-out",
           zIndex: 121,
           width: "min(880px, 92vw)",
           maxHeight: "88vh",
@@ -232,6 +243,7 @@ export default function ProductModal({ product, onClose }) {
           .product-modal { grid-template-columns: 1fr !important; }
         }
       `}</style>
-    </>
+    </>,
+    document.body
   );
 }

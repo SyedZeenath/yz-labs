@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { Link } from "react-router-dom";
 import { useCart } from "../store/cart.jsx";
 import ProductSwatch from "./ProductSwatch.jsx";
+import { LEGAL_LINKS } from "../pages/LegalLayout.jsx";
 
 const BUSY_STATUSES = ["checking-out", "awaiting-payment", "verifying"];
 const BUTTON_LABEL = {
@@ -145,11 +146,28 @@ export default function CartDrawer() {
               <p className="mono" style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 10, textAlign: "center" }}>
                 UPI · Cards · Netbanking · Wallets
               </p>
-              <p className="mono" style={{ fontSize: 10, color: "var(--muted)", marginTop: 8, textAlign: "center" }}>
-                By checking out you agree to our{" "}
-                <Link to="/terms" style={{ textDecoration: "underline" }}>Terms</Link> and{" "}
-                <Link to="/refund-policy" style={{ textDecoration: "underline" }}>Refund Policy</Link>.
-              </p>
+              <div
+                className="mono"
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  justifyContent: "center",
+                  gap: "6px 12px",
+                  marginTop: 12,
+                  paddingTop: 12,
+                  borderTop: "1px solid var(--border)",
+                }}
+              >
+                {LEGAL_LINKS.map((l) => (
+                  <Link
+                    key={l.to}
+                    to={l.to}
+                    style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}
+                  >
+                    {l.label}
+                  </Link>
+                ))}
+              </div>
               <AnimatePresence>
                 {notice && (
                   <motion.p
