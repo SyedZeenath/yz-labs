@@ -29,7 +29,13 @@ const HEADING_TOP = 90;
 // it hands off into the "Get notified" chapter next, whose own entrance
 // (via Journey's chapterMotion) provides the exit beat here automatically.
 export default function MaterialsChapter({ progress, active, narrow }) {
-  const settleP = clamp01(progress / 0.35);
+  // Staggered, not simultaneous: the heading resolves first and holds,
+  // then the spec sheet/colorway grid settles in beneath it — the same
+  // "heading leads, content follows at its own pace" rhythm every other
+  // multi-element chapter already uses (Catalog's heading vs. ring,
+  // GetNotified/GetInTouch's heading vs. form/links), rather than both
+  // starting from the same instant and reading as one flat move.
+  const settleP = clamp01((progress - 0.08) / 0.32);
   const sweepX = -30 + clamp01((progress - 0.1) / 0.6) * 160;
 
   const viewport = useViewportSize();
@@ -51,7 +57,7 @@ export default function MaterialsChapter({ progress, active, narrow }) {
     [viewport.width, headingBoxW, headingBoxH]
   );
 
-  const headingP = clamp01(progress / 0.25);
+  const headingP = clamp01(progress / 0.18);
   useParticleField({
     canvasRef: headingCanvasRef,
     targetPoints: headingTargetPoints,

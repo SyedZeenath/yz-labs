@@ -8,18 +8,55 @@ import RefundPolicyPage from "./pages/RefundPolicyPage.jsx";
 import ShippingPolicyPage from "./pages/ShippingPolicyPage.jsx";
 import ContactPage from "./pages/ContactPage.jsx";
 import CartDrawer from "./components/CartDrawer.jsx";
+import ContactModal from "./components/ContactModal.jsx";
+import { useContact } from "./store/contact.jsx";
 
 // react-router doesn't reset scroll position on navigation by itself, and
 // this site's `html { scroll-behavior: smooth }` would otherwise animate a
 // long, visible scroll back up from wherever the previous page left off.
 // Jump instantly instead, same fix used elsewhere in this app for the
 // smooth-scroll-vs-scrollTo interaction.
+//
+// A hash in the URL (Nav's "Process" link, for one — it targets `/#process`
+// so it works identically whether you're already on the homepage or on
+// /catalog, /terms, etc.) means scroll to that element instead of
+// resetting to the top. The target may not exist in the DOM yet on the
+// very first render after a cross-page navigation (Home/Journey is still
+// mounting), so this polls for it across a few frames rather than assuming
+// it's already there — same reasoning as HeroChapter's own image-load race.
 function ScrollToTop() {
-  const { pathname } = useLocation();
+  const { pathname, hash } = useLocation();
   useEffect(() => {
+    if (hash) {
+      let cancelled = false;
+      let attempts = 0;
+      const target = hash.slice(1);
+      function tryScroll() {
+        if (cancelled) return;
+        const el = document.getElementById(target);
+        if (el) {
+          el.scrollIntoView({ block: "start" });
+        } else if (attempts++ < 40) {
+          requestAnimationFrame(tryScroll);
+        }
+      }
+      tryScroll();
+      return () => {
+        cancelled = true;
+      };
+    }
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
-  }, [pathname]);
+  }, [pathname, hash]);
   return null;
+}
+
+// One shared modal instance for the whole app — Nav's "Contact" link and
+// every "Email" button (GetInTouchChapter, CTAFooter) all open this same
+// instance via useContact(), instead of each carrying its own separate,
+// unrelated local open/close state.
+function GlobalContactModal() {
+  const { isOpen, closeContact } = useContact();
+  return <ContactModal open={isOpen} onClose={closeContact} />;
 }
 
 export default function App() {
@@ -37,6 +74,7 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <CartDrawer />
+      <GlobalContactModal />
     </>
   );
 }

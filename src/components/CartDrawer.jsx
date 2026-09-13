@@ -28,20 +28,23 @@ export default function CartDrawer() {
             onClick={closeCart}
             style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 90 }}
           />
+          {/* .glass-strong (not the resting .glass) — this panel sits over
+              its own scrim, not over active particle content, so it needs
+              to hold its own translucent-but-legible look regardless of
+              whatever's behind that dimmed backdrop. */}
           <motion.aside
             key="panel"
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", stiffness: 320, damping: 34 }}
+            className="glass glass-strong"
             style={{
               position: "fixed",
               top: 0,
               right: 0,
               bottom: 0,
               width: "min(420px, 100vw)",
-              background: "var(--bg-elevated)",
-              borderLeft: "1px solid var(--border)",
               zIndex: 91,
               display: "flex",
               flexDirection: "column",

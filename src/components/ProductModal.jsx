@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ProductGallery from "./ProductGallery.jsx";
 import { useCart } from "../store/cart.jsx";
@@ -16,6 +16,18 @@ export default function ProductModal({ product, onClose }) {
   const [displayProduct, setDisplayProduct] = useState(product);
   const [selectedColorId, setSelectedColorId] = useState(product?.colors?.[0]?.id ?? null);
   const isOpen = Boolean(product);
+  const dialogRef = useRef(null);
+
+  // `aria-hidden={!isOpen}` below hides the closed dialog from screen
+  // readers, but does nothing for keyboard users — a plain Tab still
+  // reaches its Close/color/Add-to-cart buttons at opacity 0 once a
+  // product has been opened at least once (this stays mounted after that,
+  // see the comment above), since aria-hidden and pointer-events don't
+  // affect focus order. `inert` (same technique as Nav.jsx's mobile menu)
+  // removes it from the tab order too while closed.
+  useEffect(() => {
+    if (dialogRef.current) dialogRef.current.inert = !isOpen;
+  }, [isOpen]);
 
   useEffect(() => {
     // A newly-opened product resets the color selection back to its
@@ -76,6 +88,7 @@ export default function ProductModal({ product, onClose }) {
         }}
       />
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-hidden={!isOpen}

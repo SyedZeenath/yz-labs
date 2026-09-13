@@ -138,7 +138,8 @@ export default function CatalogChapter({ progress, active, narrow }) {
           phone the heading is nearly as wide as the screen, so that same
           spot collides with its own text instead; the ring is already
           shrunk to fit narrow widths (widthFit above), which reliably
-          leaves clear room below it there. */}
+          leaves clear room below it there. Clickable past a low opacity
+          threshold, not half-formed, same as this chapter's other controls. */}
       <div
         style={
           narrow
@@ -148,7 +149,7 @@ export default function CatalogChapter({ progress, active, narrow }) {
                 left: "50%",
                 transform: "translateX(-50%)",
                 opacity: ringP,
-                pointerEvents: ringP > 0.5 ? "auto" : "none",
+                pointerEvents: ringP > 0.05 ? "auto" : "none",
               }
             : {
                 position: "absolute",
@@ -156,7 +157,7 @@ export default function CatalogChapter({ progress, active, narrow }) {
                 transform: "translateY(-50%)",
                 right: "clamp(20px, 4vw, 48px)",
                 opacity: ringP,
-                pointerEvents: ringP > 0.5 ? "auto" : "none",
+                pointerEvents: ringP > 0.05 ? "auto" : "none",
               }
         }
       >

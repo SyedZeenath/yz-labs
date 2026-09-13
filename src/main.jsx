@@ -5,13 +5,16 @@ import "./index.css";
 import App from "./App.jsx";
 import { CartProvider } from "./store/cart.jsx";
 import { ProductsProvider } from "./store/products.jsx";
+import { ContactProvider } from "./store/contact.jsx";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
     <BrowserRouter>
       <ProductsProvider>
         <CartProvider>
-          <App />
+          <ContactProvider>
+            <App />
+          </ContactProvider>
         </CartProvider>
       </ProductsProvider>
     </BrowserRouter>

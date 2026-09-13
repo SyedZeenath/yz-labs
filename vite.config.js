@@ -4,7 +4,11 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
+    // Honor an assigned PORT (e.g. from a dev-server launcher working
+    // around a port conflict) instead of always demanding 5173 — nothing
+    // in this app (no OAuth callback, no webhook, no CORS allowlist) is
+    // tied to that specific port; it was just vite's own default.
+    port: process.env.PORT ? Number(process.env.PORT) : 5173,
     strictPort: true,
     proxy: {
       '/api': {

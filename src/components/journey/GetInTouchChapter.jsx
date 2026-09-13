@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { textToSource, sampleToPoints, clamp01 } from "../../lib/particleField.js";
 import useParticleField from "../../hooks/useParticleField.js";
 import useViewportSize from "../../hooks/useViewportSize.js";
-import ContactModal from "../ContactModal.jsx";
+import { useContact } from "../../store/contact.jsx";
 
 // Heading sits at 32% down the viewport, same as GetNotifiedChapter — this
 // chapter is just as light on content (a heading and two icons, no form,
@@ -23,7 +23,7 @@ const HEADING_TOP_FRACTION = 0.32;
 // so there's nothing here that still needs to be a normal, crawlable page
 // section — it's free to be pinned like everything before it.
 export default function GetInTouchChapter({ progress, active, narrow }) {
-  const [contactOpen, setContactOpen] = useState(false);
+  const { openContact } = useContact();
 
   const viewport = useViewportSize();
   const canvasRef = useRef(null);
@@ -79,12 +79,13 @@ export default function GetInTouchChapter({ progress, active, narrow }) {
           transform: "translateX(-50%)",
           textAlign: "center",
           opacity: contentP,
-          pointerEvents: contentP > 0.5 ? "auto" : "none",
+          // Same low, "as soon as it's visible" threshold as every other
+          // chapter's controls — see GetNotifiedChapter's identical fix.
+          pointerEvents: contentP > 0.05 ? "auto" : "none",
         }}
       >
         <div style={{ display: "flex", gap: narrow ? 40 : "clamp(40px, 7vw, 96px)", justifyContent: "center", flexWrap: "wrap", marginBottom: 64 }}>
-          <button onClick={() => setContactOpen(true)} aria-label="Email YZ Labs" className="big-social">
-            <span className="big-social-ring" aria-hidden />
+          <button onClick={openContact} aria-label="Email YZ Labs" className="big-social">
             <span className="big-social-circle">
               <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="5" width="18" height="14" rx="2" />
@@ -101,7 +102,6 @@ export default function GetInTouchChapter({ progress, active, narrow }) {
             aria-label="YZ Labs on Instagram"
             className="big-social"
           >
-            <span className="big-social-ring" aria-hidden />
             <span className="big-social-circle">
               <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="5" />
@@ -117,8 +117,6 @@ export default function GetInTouchChapter({ progress, active, narrow }) {
           © {new Date().getFullYear()} YZ LABS · PRINTED, NOT MASS-PRODUCED
         </p>
       </div>
-
-      <ContactModal open={contactOpen} onClose={() => setContactOpen(false)} />
 
       <style>{`
         .big-social {
@@ -142,15 +140,6 @@ export default function GetInTouchChapter({ progress, active, narrow }) {
           background: var(--bg);
           transition: color 200ms ease, background 200ms ease, border-color 200ms ease, transform 200ms ease;
         }
-        .big-social-ring {
-          position: absolute;
-          inset: 0;
-          border-radius: 50%;
-          border: 1px solid var(--accent);
-          opacity: 0;
-          animation: big-social-pulse 2.8s ease-out infinite;
-        }
-        .big-social:nth-child(2) .big-social-ring { animation-delay: 1.4s; }
         .big-social:hover .big-social-circle {
           color: #fff;
           background: var(--accent);
@@ -166,13 +155,6 @@ export default function GetInTouchChapter({ progress, active, narrow }) {
         }
         .big-social:hover .big-social-label {
           color: var(--fg);
-        }
-        @keyframes big-social-pulse {
-          0% { transform: scale(1); opacity: 0.45; }
-          100% { transform: scale(1.35); opacity: 0; }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .big-social-ring { animation: none; opacity: 0; }
         }
       `}</style>
     </div>

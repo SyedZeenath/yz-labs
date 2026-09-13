@@ -20,6 +20,24 @@
 
   --container: 1320px;
   --radius: 2px;
+
+  /* Restrained glass surfaces — dark, translucent, blurred, with a thin
+     low-opacity border and a subtle inner top highlight (the "edge
+     catching light" look), not a bright frosted-glass card. Originated in
+     Nav's own bar (Phase 3); pulled out here so Cart, spec labels, and
+     selected controls can all use the exact same surface instead of each
+     re-deriving their own rgba values. Two strengths only — "resting"
+     (barely-there, for surfaces that sit over active particle/photo
+     content and shouldn't fight it) and "strong" (for surfaces that need
+     to stay legible regardless of what's behind them, like an open panel
+     over a scrim). Nothing in between; that's deliberate restraint, not
+     an oversight. */
+  --glass-bg: rgba(6, 6, 8, 0.32);
+  --glass-bg-strong: rgba(6, 6, 8, 0.72);
+  --glass-border: rgba(244, 243, 238, 0.09);
+  --glass-highlight: rgba(244, 243, 238, 0.07);
+  --glass-blur: blur(16px) saturate(140%);
+  --glass-blur-soft: blur(10px) saturate(130%);
 }
 
 * {
@@ -168,6 +186,38 @@ img {
 .btn-ghost:hover {
   border-color: var(--fg);
   background: rgba(244, 243, 238, 0.05);
+}
+
+/* Base glass surface — square corners (this site's own 2px-radius,
+   technical identity, not a rounded floating pill), the resting
+   translucency by default. Add .glass-strong for the higher-opacity
+   variant, used where the surface needs to hold its own regardless of
+   what's moving behind it (an open cart panel over its own scrim, for
+   instance) rather than staying deliberately faint over active content
+   (the nav bar at rest, a spec label over the hero). */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+  transition: background 320ms ease;
+}
+
+.glass-strong {
+  background: var(--glass-bg-strong);
+}
+
+/* Smaller-scale variant for compact chips/controls (a selected category
+   filter, an active swatch) — same border/highlight language, a softer
+   blur since these sit over content at a much smaller scale than a full
+   nav bar or drawer. */
+.glass-control {
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-blur-soft);
+  -webkit-backdrop-filter: var(--glass-blur-soft);
+  border: 1px solid var(--accent);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 
 .grid-overlay {

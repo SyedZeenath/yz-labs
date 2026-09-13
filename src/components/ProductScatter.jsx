@@ -47,6 +47,12 @@ function toRad(deg) {
 // whenever it happened. A short time window fixes that — it always expires.
 const DRAG_SUPPRESS_MS = 300;
 
+// How long auto-rotate stays paused after the ring settles from a drag
+// release, before drifting on its own again — "pause briefly before
+// resuming", not "resume the instant the settle animation's own
+// onComplete fires" (which would read as no pause at all).
+const SETTLE_PAUSE_MS = 1600;
+
 // The thin ellipse the tiles ride around, like the edge of a record. Purely
 // decorative and always behind every tile (it renders first in the DOM,
 // tiles never drop below zIndex 0, so DOM order alone settles the stacking).
@@ -175,11 +181,26 @@ export default function ProductScatter({ products, onOpen, hideHint }) {
   const isSettling = useRef(false);
   const panDistance = useRef(0);
   const lastPan = useRef({ distance: 0, endedAt: 0 });
+  const resumeTimeoutRef = useRef(null);
 
   const { radiusX, radiusY } = useMemo(() => {
     const scale = radiusScaleFor(products.length || 1);
     return { radiusX: BASE_RADIUS_X * scale, radiusY: BASE_RADIUS_Y * scale };
   }, [products.length]);
+
+  const offsets = useMemo(() => products.map((_, i) => (360 / products.length) * i), [products.length]);
+
+  // Auto-rotate stays off for SETTLE_PAUSE_MS after a drag-release inertia
+  // settle, before drifting on its own again — "pause briefly before
+  // resuming", not "resume the instant the settle animation's own
+  // onComplete fires" (which would read as no pause at all).
+  function scheduleResume() {
+    if (resumeTimeoutRef.current) clearTimeout(resumeTimeoutRef.current);
+    resumeTimeoutRef.current = setTimeout(() => {
+      isSettling.current = false;
+      resumeTimeoutRef.current = null;
+    }, SETTLE_PAUSE_MS);
+  }
 
   useAnimationFrame((_, delta) => {
     if (reduceMotion || isDragging.current || isSettling.current) return;
@@ -187,6 +208,10 @@ export default function ProductScatter({ products, onOpen, hideHint }) {
   });
 
   const handlePanStart = () => {
+    if (resumeTimeoutRef.current) {
+      clearTimeout(resumeTimeoutRef.current);
+      resumeTimeoutRef.current = null;
+    }
     isDragging.current = true;
     isSettling.current = false;
     panDistance.current = 0;
@@ -205,13 +230,9 @@ export default function ProductScatter({ products, onOpen, hideHint }) {
       power: 0.4,
       timeConstant: 280,
       restDelta: 0.3,
-      onComplete: () => {
-        isSettling.current = false;
-      },
+      onComplete: scheduleResume,
     });
   };
-
-  const offsets = products.map((_, i) => (360 / products.length) * i);
 
   return (
     <motion.div

@@ -6,6 +6,14 @@
     <title>YZ LABS · Small Objects, Precisely Printed</title>
     <meta name="description" content="YZ LABS designs and 3D prints small-batch objects for the desk and home: planters, vessels, clocks, lamps. Studio-run, layer by layer." />
     <link rel="icon" href="/logo-circle.png" type="image/png" />
+    <!-- The Hero chapter's featured product (FEATURED_ID = "round-planter"
+         in HeroChapter.jsx and ScrollHero.jsx) is the very first image a
+         visitor sees, fetched today via a JS Image() inside a useEffect —
+         this lets the browser start the request immediately instead of
+         waiting for React to mount. Deliberately just this one asset, not
+         the rest of the catalog; keep the path in sync if FEATURED_ID
+         ever changes. -->
+    <link rel="preload" as="image" href="/products/round/hero.webp" type="image/webp" fetchpriority="high" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
