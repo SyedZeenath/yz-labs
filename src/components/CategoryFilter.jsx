@@ -8,16 +8,22 @@ export default function CategoryFilter({ categories, active, onChange }) {
         <button
           key={cat}
           onClick={() => onChange(cat)}
+          // The selected chip gets the shared glass-control treatment
+          // (Phase 4) instead of a flat inverted fill — still clearly the
+          // active one (accent border, brighter text), just consistent
+          // with the rest of the site's glass surfaces rather than a
+          // one-off solid-white style unique to this control.
+          className={active === cat ? "glass-control" : undefined}
           style={{
             fontSize: 12,
             textTransform: "uppercase",
             letterSpacing: "0.06em",
             padding: "9px 14px",
-            border: "1px solid var(--border-strong)",
-            background: active === cat ? "var(--fg)" : "transparent",
-            color: active === cat ? "var(--bg)" : "var(--fg-dim)",
+            border: active === cat ? undefined : "1px solid var(--border-strong)",
+            background: active === cat ? undefined : "transparent",
+            color: active === cat ? "var(--fg)" : "var(--fg-dim)",
             cursor: "pointer",
-            transition: "background 150ms ease, color 150ms ease",
+            transition: "color 150ms ease",
           }}
         >
           {cat}

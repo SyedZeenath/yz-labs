@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 const EMPTY = { name: "", email: "", phone: "", message: "" };
@@ -12,6 +12,17 @@ export default function ContactModal({ open, onClose }) {
   // idle | sending | sent | error
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState(null);
+  const dialogRef = useRef(null);
+
+  // `aria-hidden={!open}` below hides the closed dialog from screen readers,
+  // but does nothing for keyboard users — a plain Tab still reaches its
+  // Close button and form fields even at opacity 0, since aria-hidden and
+  // pointer-events don't affect focus order. `inert` (set imperatively for
+  // the same React-18-JSX-prop reason as Nav.jsx's mobile menu) removes it
+  // from the tab order too while closed.
+  useEffect(() => {
+    if (dialogRef.current) dialogRef.current.inert = !open;
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -96,6 +107,7 @@ export default function ContactModal({ open, onClose }) {
         }}
       />
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-hidden={!open}

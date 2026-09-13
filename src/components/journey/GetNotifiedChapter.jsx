@@ -84,7 +84,11 @@ export default function GetNotifiedChapter({ progress, active, narrow }) {
           width: "min(92vw, 640px)",
           textAlign: "center",
           opacity: contentP,
-          pointerEvents: contentP > 0.5 ? "auto" : "none",
+          // A control should be clickable as soon as it's meaningfully on
+          // screen, not only once it's crossed halfway through its own
+          // fade-in — the same low threshold Hero's intro copy already
+          // uses, rather than a stricter one unique to this chapter.
+          pointerEvents: contentP > 0.05 ? "auto" : "none",
         }}
       >
         <h3 style={{ fontSize: narrow ? 34 : "clamp(38px, 5.4vw, 60px)", lineHeight: 1.12, marginBottom: 36 }}>

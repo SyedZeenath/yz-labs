@@ -1,6 +1,5 @@
-import { useState } from "react";
 import RevealBox from "./RevealBox.jsx";
-import ContactModal from "./ContactModal.jsx";
+import { useContact } from "../store/contact.jsx";
 
 // The closing beat, not a legal directory — Terms/Privacy/Refund/Shipping
 // links moved into the cart drawer next to checkout (where someone actually
@@ -10,11 +9,10 @@ import ContactModal from "./ContactModal.jsx";
 // studio, filling the space instead of leaving it empty above a cramped
 // strip of links.
 export default function CTAFooter() {
-  const [contactOpen, setContactOpen] = useState(false);
+  const { openContact } = useContact();
 
   return (
     <footer className="section-frame" style={{ padding: "100px 0 48px", position: "relative", overflow: "hidden" }}>
-      <div className="grid-overlay" aria-hidden />
       <div className="container" style={{ position: "relative", textAlign: "center" }}>
         <div className="crosshair" style={{ top: 0, left: -6 }} aria-hidden />
         <div className="crosshair" style={{ top: 0, right: -6 }} aria-hidden />
@@ -34,8 +32,7 @@ export default function CTAFooter() {
           amount={0.6}
           style={{ display: "flex", gap: "clamp(28px, 6vw, 72px)", justifyContent: "center", flexWrap: "wrap", margin: "64px 0 72px" }}
         >
-          <button onClick={() => setContactOpen(true)} aria-label="Email YZ Labs" className="big-social">
-            <span className="big-social-ring" aria-hidden />
+          <button onClick={openContact} aria-label="Email YZ Labs" className="big-social">
             <span className="big-social-circle">
               <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="5" width="18" height="14" rx="2" />
@@ -52,7 +49,6 @@ export default function CTAFooter() {
             aria-label="YZ Labs on Instagram"
             className="big-social"
           >
-            <span className="big-social-ring" aria-hidden />
             <span className="big-social-circle">
               <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="5" />
@@ -68,8 +64,6 @@ export default function CTAFooter() {
           © {new Date().getFullYear()} YZ LABS · PRINTED, NOT MASS-PRODUCED
         </p>
       </div>
-
-      <ContactModal open={contactOpen} onClose={() => setContactOpen(false)} />
 
       <style>{`
         .big-social {
@@ -93,15 +87,6 @@ export default function CTAFooter() {
           background: var(--bg);
           transition: color 200ms ease, background 200ms ease, border-color 200ms ease, transform 200ms ease;
         }
-        .big-social-ring {
-          position: absolute;
-          inset: 0;
-          border-radius: 50%;
-          border: 1px solid var(--accent);
-          opacity: 0;
-          animation: big-social-pulse 2.8s ease-out infinite;
-        }
-        .big-social:nth-child(2) .big-social-ring { animation-delay: 1.4s; }
         .big-social:hover .big-social-circle {
           color: #fff;
           background: var(--accent);
@@ -117,13 +102,6 @@ export default function CTAFooter() {
         }
         .big-social:hover .big-social-label {
           color: var(--fg);
-        }
-        @keyframes big-social-pulse {
-          0% { transform: scale(1); opacity: 0.45; }
-          100% { transform: scale(1.35); opacity: 0; }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .big-social-ring { animation: none; opacity: 0; }
         }
       `}</style>
     </footer>
