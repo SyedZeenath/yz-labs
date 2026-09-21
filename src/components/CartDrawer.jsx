@@ -37,6 +37,26 @@ export default function CartDrawer() {
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
   }, [step]);
 
+  // The page behind is a pinned scroll journey driven purely by scroll
+  // position, so any wheel/touch scroll that reaches it moves the whole
+  // site under the drawer — even when the drawer's own list has nothing to
+  // scroll. Lock the page while the drawer is open (same approach as
+  // ContactModal and ProductModal), and keep the layout from shifting
+  // sideways when the page scrollbar disappears by padding the body by the
+  // scrollbar's width. Previous inline values are restored, not cleared.
+  useEffect(() => {
+    if (!isOpen) return;
+    const body = document.body;
+    const prev = { overflow: body.style.overflow, paddingRight: body.style.paddingRight };
+    const gutter = window.innerWidth - document.documentElement.clientWidth;
+    body.style.overflow = "hidden";
+    if (gutter > 0) body.style.paddingRight = `${gutter}px`;
+    return () => {
+      body.style.overflow = prev.overflow;
+      body.style.paddingRight = prev.paddingRight;
+    };
+  }, [isOpen]);
+
   const onDelivery = step === "address";
 
   return (
@@ -72,6 +92,7 @@ export default function CartDrawer() {
               zIndex: 91,
               display: "flex",
               flexDirection: "column",
+              overscrollBehavior: "contain",
             }}
           >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "22px 24px", borderBottom: "1px solid var(--border)" }}>
@@ -95,7 +116,12 @@ export default function CartDrawer() {
               </button>
             </div>
 
-            <div ref={bodyRef} style={{ flex: 1, overflowY: "auto", padding: "8px 24px" }}>
+            {/* overscrollBehavior: contain — when this list reaches its end
+                (or has nothing to scroll), the leftover scroll stops here
+                instead of chaining out to whatever is behind the drawer;
+                covers touch devices, where locking the body alone isn't
+                always enough. */}
+            <div ref={bodyRef} style={{ flex: 1, overflowY: "auto", overscrollBehavior: "contain", padding: "8px 24px" }}>
               {onDelivery ? (
                 <DeliveryForm id={DELIVERY_FORM_ID} disabled={busy} onSubmit={checkout} />
               ) : items.length === 0 ? (
