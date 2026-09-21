@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 import Razorpay from "razorpay";
 import nodemailer from "nodemailer";
 import { resolveProductPrice } from "../src/data/products.js";
+import { validateShipping } from "../src/lib/address.js";
+import { buildOrderEmail, encodeItemsNote } from "./orderEmail.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(__dirname, "..", "dist");
@@ -79,6 +81,45 @@ function recordSubmission(ip) {
   contactSubmissions.set(ip, recent);
 }
 
+// Emails the shop one summary per paid order (customer, items, delivery
+// address) to CONTACT_TO_EMAIL. Called from both /api/verify-payment (the
+// customer's browser confirming) and the Razorpay webhook (Razorpay
+// confirming directly, which still fires if the customer closes the tab
+// right after paying) — whichever arrives first sends it, the other is
+// skipped. The details come from Razorpay's own copy of the order rather
+// than the in-memory ledger, so a server restart between checkout and
+// payment doesn't lose them.
+const notifiedOrders = new Set();
+
+async function notifyOrderPaid(orderId, paymentId) {
+  if (notifiedOrders.has(orderId)) return;
+  if (!razorpay) return;
+  // Claimed before the first await so verify + webhook arriving together
+  // can't both send. Released again on failure so the other path can retry.
+  notifiedOrders.add(orderId);
+  try {
+    const order = await razorpay.orders.fetch(orderId);
+    const email = buildOrderEmail(order, paymentId);
+    // Always in the server log too — the one place an order is recorded even
+    // if email isn't configured or delivery fails.
+    console.log(`[server] PAID ORDER ${orderId}\n${email.text}`);
+    if (!mailer) {
+      console.warn("[server] order notification email skipped: CONTACT_EMAIL_USER / CONTACT_EMAIL_PASS are not set.");
+      return;
+    }
+    await mailer.sendMail({
+      from: `"YZ Labs orders" <${CONTACT_EMAIL_USER}>`,
+      to: CONTACT_TO_EMAIL,
+      replyTo: email.replyTo,
+      subject: email.subject,
+      text: email.text,
+    });
+  } catch (err) {
+    notifiedOrders.delete(orderId);
+    console.error(`[server] could not send the order notification for ${orderId}:`, err);
+  }
+}
+
 const app = express();
 app.use(cors());
 
@@ -99,8 +140,9 @@ app.post("/api/webhook", express.raw({ type: "*/*" }), (req, res) => {
   console.log("[server] webhook event:", event.event);
 
   const orderId = event.payload?.payment?.entity?.order_id;
-  if (orderId && orders.has(orderId) && event.event === "payment.captured") {
-    orders.get(orderId).status = "paid";
+  if (orderId && event.event === "payment.captured") {
+    if (orders.has(orderId)) orders.get(orderId).status = "paid";
+    notifyOrderPaid(orderId, event.payload.payment.entity.id);
   }
 
   res.json({ received: true });
@@ -117,6 +159,15 @@ app.post("/api/create-order", async (req, res) => {
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "Cart is empty." });
   }
+
+  // Delivery details are required before an order exists at all — the
+  // checkout form validates them too, but this is the check that counts.
+  const shippingResult = validateShipping(req.body?.shipping);
+  if (!shippingResult.ok) {
+    const firstError = Object.values(shippingResult.errors)[0];
+    return res.status(400).json({ error: `Delivery details: ${firstError}`, fields: shippingResult.errors });
+  }
+  const shipping = shippingResult.value;
 
   let amount = 0;
   const lineItems = [];
@@ -152,10 +203,24 @@ app.post("/api/create-order", async (req, res) => {
       amount: amountPaise, // Razorpay wants the amount in paise
       currency: "INR",
       receipt: `yzlabs_${Date.now()}`,
-      notes: { items: JSON.stringify(lineItems) },
+      // Razorpay notes are the durable record of where this order ships —
+      // the in-memory `orders` ledger below is lost on every restart, and
+      // the Razorpay dashboard shows notes alongside each payment. Each
+      // value stays under Razorpay's 256-character-per-note limit
+      // (line1 + line2 are capped at 120 apiece by the validator).
+      notes: {
+        items: encodeItemsNote(lineItems),
+        ship_name: shipping.name,
+        ship_phone: `+91${shipping.phone}`,
+        ship_email: shipping.email,
+        ship_address: [shipping.line1, shipping.line2].filter(Boolean).join(", "),
+        ship_city: shipping.city,
+        ship_state: shipping.state,
+        ship_pincode: shipping.pincode,
+      },
     });
 
-    orders.set(order.id, { status: "created", amount, lineItems, createdAt: Date.now() });
+    orders.set(order.id, { status: "created", amount, lineItems, shipping, createdAt: Date.now() });
 
     res.json({ orderId: order.id, amount: order.amount, currency: order.currency, keyId: KEY_ID });
   } catch (err) {
@@ -197,6 +262,9 @@ app.post("/api/verify-payment", (req, res) => {
     order.status = "paid";
     order.paymentId = razorpay_payment_id;
   }
+
+  // Not awaited: the customer's confirmation shouldn't wait on our email.
+  notifyOrderPaid(razorpay_order_id, razorpay_payment_id);
 
   res.json({ ok: true });
 });

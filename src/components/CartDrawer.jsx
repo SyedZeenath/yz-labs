@@ -1,8 +1,12 @@
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Link } from "react-router-dom";
 import { useCart } from "../store/cart.jsx";
 import ProductSwatch from "./ProductSwatch.jsx";
+import DeliveryForm from "./DeliveryForm.jsx";
 import { LEGAL_LINKS } from "../pages/LegalLayout.jsx";
+
+const DELIVERY_FORM_ID = "checkout-delivery";
 
 const BUSY_STATUSES = ["checking-out", "awaiting-payment", "verifying"];
 const BUTTON_LABEL = {
@@ -14,6 +18,26 @@ const BUTTON_LABEL = {
 export default function CartDrawer() {
   const { items, itemCount, subtotal, isOpen, closeCart, setQty, removeItem, checkout, status, notice } = useCart();
   const busy = BUSY_STATUSES.includes(status);
+
+  // "cart" → "address" → (Razorpay widget). The delivery step is what stops
+  // checkout from going straight from the cart to payment: no order is
+  // created until the address has been entered and validated.
+  const [step, setStep] = useState("cart");
+  const bodyRef = useRef(null);
+
+  // Always reopen on the cart itself, and fall back to it once the cart
+  // empties (a successful payment clears it).
+  useEffect(() => {
+    if (!isOpen) setStep("cart");
+  }, [isOpen]);
+  useEffect(() => {
+    if (items.length === 0) setStep("cart");
+  }, [items.length]);
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+  }, [step]);
+
+  const onDelivery = step === "address";
 
   return (
     <AnimatePresence>
@@ -51,14 +75,30 @@ export default function CartDrawer() {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "22px 24px", borderBottom: "1px solid var(--border)" }}>
-              <span className="eyebrow">Cart · {itemCount}</span>
+              {onDelivery ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <button
+                    onClick={() => setStep("cart")}
+                    disabled={busy}
+                    aria-label="Back to cart"
+                    style={{ fontSize: 20, lineHeight: 1, cursor: busy ? "default" : "pointer", opacity: busy ? 0.4 : 1 }}
+                  >
+                    ←
+                  </button>
+                  <span className="eyebrow">Delivery · Step 2 of 2</span>
+                </div>
+              ) : (
+                <span className="eyebrow">Cart · {itemCount}</span>
+              )}
               <button onClick={closeCart} aria-label="Close cart" style={{ fontSize: 22, cursor: "pointer", lineHeight: 1 }}>
                 ×
               </button>
             </div>
 
-            <div style={{ flex: 1, overflowY: "auto", padding: "8px 24px" }}>
-              {items.length === 0 ? (
+            <div ref={bodyRef} style={{ flex: 1, overflowY: "auto", padding: "8px 24px" }}>
+              {onDelivery ? (
+                <DeliveryForm id={DELIVERY_FORM_ID} disabled={busy} onSubmit={checkout} />
+              ) : items.length === 0 ? (
                 <p className="mono" style={{ color: "var(--muted)", fontSize: 13, marginTop: 40 }}>
                   Cart is empty. Add something from the catalog.
                 </p>
@@ -138,14 +178,33 @@ export default function CartDrawer() {
                   ₹{subtotal}
                 </span>
               </div>
-              <button
-                onClick={checkout}
-                disabled={items.length === 0 || busy}
-                className="btn btn-primary"
-                style={{ width: "100%", opacity: items.length === 0 ? 0.5 : 1 }}
-              >
-                {BUTTON_LABEL[status] || "Checkout with Razorpay"}
-              </button>
+              {/* Distinct keys matter: without them React reuses one <button>
+                  element across both steps, so it becomes type="submit" in
+                  the middle of the "Continue" click and the browser's
+                  default action then submits the (still empty) form. */}
+              {onDelivery ? (
+                <button
+                  key="pay"
+                  type="submit"
+                  form={DELIVERY_FORM_ID}
+                  disabled={items.length === 0 || busy}
+                  className="btn btn-primary"
+                  style={{ width: "100%", opacity: items.length === 0 || busy ? 0.6 : 1 }}
+                >
+                  {BUTTON_LABEL[status] || `Pay ₹${subtotal} with Razorpay`}
+                </button>
+              ) : (
+                <button
+                  key="continue"
+                  type="button"
+                  onClick={() => setStep("address")}
+                  disabled={items.length === 0 || busy}
+                  className="btn btn-primary"
+                  style={{ width: "100%", opacity: items.length === 0 ? 0.5 : 1 }}
+                >
+                  {BUTTON_LABEL[status] || "Continue to delivery"}
+                </button>
+              )}
               <p className="mono" style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 10, textAlign: "center" }}>
                 UPI · Cards · Netbanking · Wallets
               </p>
