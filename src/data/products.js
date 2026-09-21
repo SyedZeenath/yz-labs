@@ -97,8 +97,11 @@ const RAW_PRODUCTS = [
     colors: [{ id: "walnut", priceDelta: 0 }],
     dims: "TBC",
     weight: "TBC",
-    // No real price set yet, falls back to DEFAULT_PRICE (500) below.
-    price: 0,
+    // TEMPORARY TEST PRICE (Rs 10) so a real Razorpay payment can be tried
+    // cheaply end to end. Not a real price: restore before selling this for
+    // real. Until a real price is set here, 0 falls back to DEFAULT_PRICE
+    // (500) below.
+    price: 10,
     status: "In stock",
     batch: "B-032",
   },
