@@ -1,9 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Link } from "react-router-dom";
 import { useCart } from "../store/cart.jsx";
 import ProductSwatch from "./ProductSwatch.jsx";
 import DeliveryForm from "./DeliveryForm.jsx";
+import DiscountCode from "./DiscountCode.jsx";
+import OffersPanel from "./OffersPanel.jsx";
+import { formatRupees } from "../lib/money.js";
 import { LEGAL_LINKS } from "../pages/LegalLayout.jsx";
 
 const DELIVERY_FORM_ID = "checkout-delivery";
@@ -15,8 +18,36 @@ const BUTTON_LABEL = {
   verifying: "Confirming payment…",
 };
 
+function TotalRow({ label, value, strong = false, tone }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+      <span className="mono" style={{ fontSize: 13, color: tone || "var(--muted)" }}>
+        {label}
+      </span>
+      <span className="mono" style={{ fontSize: strong ? 15 : 13, fontWeight: strong ? 600 : 400, color: tone }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
 export default function CartDrawer() {
-  const { items, itemCount, subtotal, isOpen, closeCart, setQty, removeItem, checkout, status, notice } = useCart();
+  const {
+    items,
+    itemCount,
+    subtotal,
+    discount,
+    discountCode,
+    discountAmount,
+    total,
+    isOpen,
+    closeCart,
+    setQty,
+    removeItem,
+    checkout,
+    status,
+    notice,
+  } = useCart();
   const busy = BUSY_STATUSES.includes(status);
 
   // "cart" → "address" → (Razorpay widget). The delivery step is what stops
@@ -58,6 +89,18 @@ export default function CartDrawer() {
   }, [isOpen]);
 
   const onDelivery = step === "address";
+
+  // The offers list slides over the item area. Only meaningful on the cart
+  // step, and always closed when the drawer closes or moves on to delivery.
+  const [offersOpen, setOffersOpen] = useState(false);
+  const offersLinkRef = useRef(null);
+  useEffect(() => {
+    if (!isOpen || onDelivery) setOffersOpen(false);
+  }, [isOpen, onDelivery]);
+  const closeOffers = useCallback(() => {
+    setOffersOpen(false);
+    offersLinkRef.current?.focus();
+  }, []);
 
   return (
     <AnimatePresence>
@@ -116,93 +159,105 @@ export default function CartDrawer() {
               </button>
             </div>
 
-            {/* overscrollBehavior: contain — when this list reaches its end
-                (or has nothing to scroll), the leftover scroll stops here
-                instead of chaining out to whatever is behind the drawer;
-                covers touch devices, where locking the body alone isn't
-                always enough. */}
-            <div ref={bodyRef} style={{ flex: 1, overflowY: "auto", overscrollBehavior: "contain", padding: "8px 24px" }}>
-              {onDelivery ? (
-                <DeliveryForm id={DELIVERY_FORM_ID} disabled={busy} onSubmit={checkout} />
-              ) : items.length === 0 ? (
-                <p className="mono" style={{ color: "var(--muted)", fontSize: 13, marginTop: 40 }}>
-                  Cart is empty. Add something from the catalog.
-                </p>
-              ) : (
-                items.map((item) => (
-                  <div key={item.lineId} style={{ display: "flex", gap: 14, padding: "18px 0", borderBottom: "1px solid var(--border)" }}>
-                    <div
-                      style={{
-                        width: 64,
-                        height: 64,
-                        flexShrink: 0,
-                        background: "var(--bg)",
-                        border: "1px solid var(--border)",
-                        borderRadius: 8,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        overflow: "hidden",
-                      }}
-                    >
-                      {item.heroImage ? (
-                        <img
-                          src={item.heroImage}
-                          alt={item.name}
-                          style={{ width: "84%", height: "84%", objectFit: "contain" }}
-                        />
-                      ) : (
-                        <ProductSwatch colorHex={item.colorHex} compact />
-                      )}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                        <span style={{ fontSize: 14, fontWeight: 600 }}>{item.name}</span>
-                        <span className="mono" style={{ fontSize: 13 }}>₹{item.price * item.qty}</span>
+            {/* Positioned, so the offers list can slide over the item area
+                without touching the code field / totals below it. */}
+            <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+              {/* overscrollBehavior: contain — when this list reaches its end
+                  (or has nothing to scroll), the leftover scroll stops here
+                  instead of chaining out to whatever is behind the drawer;
+                  covers touch devices, where locking the body alone isn't
+                  always enough. */}
+              <div ref={bodyRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehavior: "contain", padding: "8px 24px" }}>
+                {onDelivery ? (
+                  <DeliveryForm id={DELIVERY_FORM_ID} disabled={busy} onSubmit={checkout} />
+                ) : items.length === 0 ? (
+                  <p className="mono" style={{ color: "var(--muted)", fontSize: 13, marginTop: 40 }}>
+                    Cart is empty. Add something from the catalog.
+                  </p>
+                ) : (
+                  items.map((item) => (
+                    <div key={item.lineId} style={{ display: "flex", gap: 14, padding: "18px 0", borderBottom: "1px solid var(--border)" }}>
+                      <div
+                        style={{
+                          width: 64,
+                          height: 64,
+                          flexShrink: 0,
+                          background: "var(--bg)",
+                          border: "1px solid var(--border)",
+                          borderRadius: 8,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          overflow: "hidden",
+                        }}
+                      >
+                        {item.heroImage ? (
+                          <img
+                            src={item.heroImage}
+                            alt={item.name}
+                            style={{ width: "84%", height: "84%", objectFit: "contain" }}
+                          />
+                        ) : (
+                          <ProductSwatch colorHex={item.colorHex} compact />
+                        )}
                       </div>
-                      <p className="mono" style={{ fontSize: 11, color: "var(--muted)", margin: "4px 0 10px" }}>
-                        {item.colorway}
-                      </p>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <div className="mono" style={{ display: "flex", alignItems: "center", border: "1px solid var(--border-strong)" }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                          <span style={{ fontSize: 14, fontWeight: 600 }}>{item.name}</span>
+                          <span className="mono" style={{ fontSize: 13 }}>₹{item.price * item.qty}</span>
+                        </div>
+                        <p className="mono" style={{ fontSize: 11, color: "var(--muted)", margin: "4px 0 10px" }}>
+                          {item.colorway}
+                        </p>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <div className="mono" style={{ display: "flex", alignItems: "center", border: "1px solid var(--border-strong)" }}>
+                            <button
+                              onClick={() => setQty(item.lineId, item.qty - 1)}
+                              style={{ width: 26, height: 26, cursor: "pointer" }}
+                              aria-label={`Decrease quantity of ${item.name}`}
+                            >
+                              −
+                            </button>
+                            <span style={{ width: 26, textAlign: "center", fontSize: 12 }}>{item.qty}</span>
+                            <button
+                              onClick={() => setQty(item.lineId, item.qty + 1)}
+                              style={{ width: 26, height: 26, cursor: "pointer" }}
+                              aria-label={`Increase quantity of ${item.name}`}
+                            >
+                              +
+                            </button>
+                          </div>
                           <button
-                            onClick={() => setQty(item.lineId, item.qty - 1)}
-                            style={{ width: 26, height: 26, cursor: "pointer" }}
-                            aria-label={`Decrease quantity of ${item.name}`}
+                            onClick={() => removeItem(item.lineId)}
+                            className="mono"
+                            style={{ fontSize: 11, color: "var(--muted)", cursor: "pointer", textDecoration: "underline" }}
                           >
-                            −
-                          </button>
-                          <span style={{ width: 26, textAlign: "center", fontSize: 12 }}>{item.qty}</span>
-                          <button
-                            onClick={() => setQty(item.lineId, item.qty + 1)}
-                            style={{ width: 26, height: 26, cursor: "pointer" }}
-                            aria-label={`Increase quantity of ${item.name}`}
-                          >
-                            +
+                            Remove
                           </button>
                         </div>
-                        <button
-                          onClick={() => removeItem(item.lineId)}
-                          className="mono"
-                          style={{ fontSize: 11, color: "var(--muted)", cursor: "pointer", textDecoration: "underline" }}
-                        >
-                          Remove
-                        </button>
                       </div>
                     </div>
-                  </div>
-                ))
-              )}
+                  ))
+                )}
+              </div>
+              {!onDelivery && <OffersPanel open={offersOpen} onClose={closeOffers} />}
             </div>
 
             <div style={{ padding: "20px 24px 26px", borderTop: "1px solid var(--border)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-                <span className="mono" style={{ fontSize: 13, color: "var(--muted)" }}>
-                  Subtotal
-                </span>
-                <span className="mono" style={{ fontSize: 15, fontWeight: 600 }}>
-                  ₹{subtotal}
-                </span>
+              {/* Editable on the cart step only; on the delivery step the
+                  applied code shows as a line in the totals below. */}
+              {items.length > 0 && !onDelivery && (
+                <DiscountCode offersOpen={offersOpen} onOpenOffers={() => setOffersOpen(true)} linkRef={offersLinkRef} />
+              )}
+
+              <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
+                {discount && (
+                  <>
+                    <TotalRow label="Subtotal" value={`₹${formatRupees(subtotal)}`} />
+                    <TotalRow label={`Discount · ${discountCode}`} value={`−₹${formatRupees(discountAmount)}`} tone="#8FE0A8" />
+                  </>
+                )}
+                <TotalRow label={discount ? "Total" : "Subtotal"} value={`₹${formatRupees(total)}`} strong />
               </div>
               {/* Distinct keys matter: without them React reuses one <button>
                   element across both steps, so it becomes type="submit" in
@@ -217,7 +272,7 @@ export default function CartDrawer() {
                   className="btn btn-primary"
                   style={{ width: "100%", opacity: items.length === 0 || busy ? 0.6 : 1 }}
                 >
-                  {BUTTON_LABEL[status] || `Pay ₹${subtotal} with Razorpay`}
+                  {BUTTON_LABEL[status] || `Pay ₹${formatRupees(total)} with Razorpay`}
                 </button>
               ) : (
                 <button

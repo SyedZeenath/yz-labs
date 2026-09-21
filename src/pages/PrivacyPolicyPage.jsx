@@ -44,7 +44,10 @@ export default function PrivacyPolicyPage() {
       <h2>4. How we use your information</h2>
       <p>
         Solely to process and fulfil your order, respond to enquiries, and, only if you've opted in, let you know
-        about new batches or restocks. We do not sell or rent your information to anyone.
+        about new batches or restocks. When you use a discount code that is limited to one use per customer (for
+        example a first-order offer), we compare the email address, mobile number and delivery address on your order
+        with those on earlier orders to check it hasn't already been used. We do not sell or rent your information to
+        anyone.
       </p>
 
       <h2>5. Data retention</h2>
