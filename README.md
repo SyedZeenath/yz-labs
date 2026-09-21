@@ -29,7 +29,17 @@ Products live in [`src/data/products.js`](src/data/products.js) — one object p
 1. Push this repo to GitHub.
 2. On [Render](https://render.com), New → Blueprint, point it at the repo — it will pick up `render.yaml` automatically (build: `npm install && npm run build`, start: `npm start`).
 3. In the Render dashboard, set the environment variables: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` (optional, only needed once you configure a webhook).
-4. Once live, add the deployed webhook URL (`https://your-app.onrender.com/api/webhook`) in the Razorpay Dashboard if you want webhook-based payment confirmation in addition to the built-in signature verification.
+4. Once live, add the deployed webhook URL (`https://your-app.onrender.com/api/webhook`) in the Razorpay Dashboard (event: `payment.captured`) if you want webhook-based payment confirmation in addition to the built-in signature verification. This is also what makes sure you still get the new-order email if a customer closes the tab right after paying.
+
+### Knowing about orders
+
+Checkout collects the customer's name, email, mobile and India delivery address before payment. Each paid order then reaches you in three places:
+
+- **Email**: one "New order" email per paid order (customer, items, ship-to address) to `CONTACT_TO_EMAIL`. Needs the `CONTACT_EMAIL_*` variables set.
+- **Razorpay Dashboard**: the same details are stored in the order's notes (`ship_name`, `ship_address`, …).
+- **Server logs**: every paid order is printed as `PAID ORDER …`.
+
+The server's own order list is in memory and is lost on restart; the email and the Razorpay notes are the durable record.
 
 ## Before accepting real payments
 

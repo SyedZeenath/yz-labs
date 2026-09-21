@@ -17,9 +17,14 @@ export default function PrivacyPolicyPage() {
           (local storage) so your cart persists between visits. We don't see this until you check out.
         </li>
         <li>
-          <strong>Order & payment details.</strong> When you check out, our payment partner Razorpay collects your
-          contact details and payment information directly, within their own secure checkout. We receive the order
-          amount, order ID, and payment confirmation, never your card number, UPI PIN, or bank credentials.
+          <strong>Delivery details.</strong> When you check out, we ask for your name, email, mobile number, and
+          delivery address so we can ship your order and send you updates about it. We keep these with the order.
+          They're also saved in your own browser (local storage) so they're pre-filled next time you check out.
+        </li>
+        <li>
+          <strong>Payment details.</strong> Our payment partner Razorpay collects your payment information directly,
+          within their own secure checkout. We receive the order amount, order ID, and payment confirmation, never
+          your card number, UPI PIN, or bank credentials.
         </li>
         <li>
           <strong>Email address.</strong> If you submit your email through a form on this Site (for example, to

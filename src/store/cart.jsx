@@ -83,14 +83,17 @@ export function CartProvider({ children }) {
   const subtotal = items.reduce((sum, i) => sum + i.price * i.qty, 0);
 
   // Real Razorpay flow:
+  // 0. The cart drawer's delivery step collects and validates the shipping
+  //    details first; they're passed in here and never skipped.
   // 1. POST /api/create-order (server prices the cart itself, never trusts
-  //    amounts from the client) → gets back a Razorpay order id.
+  //    amounts from the client, and re-validates the delivery details) →
+  //    gets back a Razorpay order id.
   // 2. Open Razorpay's Checkout widget for that order (supports UPI, cards,
   //    netbanking, wallets).
   // 3. On success, POST /api/verify-payment to check the signature
   //    server-side before treating the order as paid.
-  const checkout = useCallback(async () => {
-    if (items.length === 0) return;
+  const checkout = useCallback(async (shipping) => {
+    if (items.length === 0 || !shipping) return;
 
     if (typeof window.Razorpay === "undefined") {
       setStatus("error");
@@ -106,7 +109,10 @@ export function CartProvider({ children }) {
       const res = await fetch("/api/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: items.map((i) => ({ id: i.id, colorId: i.colorId, qty: i.qty })) }),
+        body: JSON.stringify({
+          items: items.map((i) => ({ id: i.id, colorId: i.colorId, qty: i.qty })),
+          shipping,
+        }),
       });
       order = await res.json();
       if (!res.ok) throw new Error(order.error || "Could not create order.");
@@ -126,6 +132,7 @@ export function CartProvider({ children }) {
       name: "YZ Labs",
       description: "Small-batch 3D printed objects",
       image: "/logo-circle.png",
+      prefill: { name: shipping.name, email: shipping.email, contact: `+91${shipping.phone}` },
       theme: { color: "#3d6bff" },
       handler: async (response) => {
         setStatus("verifying");
