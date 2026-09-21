@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useProducts } from "../../store/products.jsx";
-import { textToSource, sampleToPoints, clamp01 } from "../../lib/particleField.js";
+import { textToSource, textLinesToSource, sampleToPoints, sampleLogoToPoints, clamp01 } from "../../lib/particleField.js";
 import useParticleField from "../../hooks/useParticleField.js";
 import useAmbientParticles from "../../hooks/useAmbientParticles.js";
 import useViewportSize from "../../hooks/useViewportSize.js";
-import SpecLabel from "../SpecLabel.jsx";
 
-const FEATURED_ID = "round-planter";
+const LOGO_SRC = "/logo-circle.png";
 
 // Slower than useParticleField's own default catch-up (0.06) — this is the
 // very first thing a visitor sees, so it's worth lingering on rather than
 // resolving as quickly as the scroll-scrubbed formations later in the page.
 const HERO_ENTRANCE_CATCH_UP = 0.028;
+
+// How long the non-particle parts of the hero (tagline, rail, scroll
+// hint) take to come in — long enough to feel like part of the same
+// materializing beat as the particles, not a separate UI fade.
+const REVEAL_MS = 1400;
 
 // Same top position as every other chapter's mark (Catalog, GetNotified,
 // GetInTouch) — the whole point is that "STUDIO" reads as the same kind of
@@ -19,43 +22,71 @@ const HERO_ENTRANCE_CATCH_UP = 0.028;
 // corner tag.
 const HEADING_TOP = 90;
 
-// The Hero chapter of the journey: the featured product assembles from
-// scattered particles instead of a video scrubbing. Unlike every later
-// chapter, this materialization isn't scroll-scrubbed — it's the very
-// first thing a visitor sees, so it has to play on its own as soon as the
-// page loads, before anyone has scrolled at all. Everything else in this
-// chapter (the intro copy's fade-out, the spec labels, the scroll rail)
-// still tracks scroll `progress` exactly as before; only the STUDIO mark
-// and the product photo get this one-shot, load-triggered reveal.
+// How far the tagline is pulled up into the STUDIO mark's own box (that
+// box carries empty padding around the letters, so stacking flush under it
+// left a needlessly wide gap).
+const INTRO_PULL_UP = 8;
+
+// Breathing room between the headline and the logo, the space kept clear at
+// the bottom for the SCROLL hint, the smallest the logo may shrink to (below
+// that its finest strokes stop reading), and the size increments it snaps to.
+const LOGO_GAP = 16;
+const BOTTOM_RESERVE = 48;
+const MIN_LOGO = 140;
+const LOGO_STEP = 20;
+
+// Facts about logo-circle.png, measured from the image: the marks occupy
+// about 86% of the disc's height, and the cropped box is ~0.9x as wide as
+// it is tall. Only used to size the logo before it has been sampled; the
+// sampled result reports its exact dimensions.
+const LOGO_CONTENT_H = 0.864;
+const LOGO_ASPECT = 0.903;
+
+// Upper bound on samples across the logo's disc image (its point count
+// grows with the square of this), and on the headline's point count at full
+// density — past either, sampling steps down to every other screen pixel.
+const MAX_LOGO_SAMPLES = 700;
+const HEADLINE_MAX_POINTS = 16000;
+
+// The Hero chapter of the journey: the YZ Labs logo assembles from
+// scattered particles. Unlike every later chapter, this materialization
+// isn't scroll-scrubbed — it's the very first thing a visitor sees, so it
+// has to play on its own as soon as the page loads, before anyone has
+// scrolled at all. Everything here (STUDIO mark, headline, logo, tagline,
+// rail) comes in together off that one load-triggered reveal and then
+// stays put — the whole hero leaves together through Journey's chapter exit
+// rather than piece by piece. Only the scroll rail's fill and the SCROLL
+// hint track scroll `progress`.
 export default function HeroChapter({ progress, active, narrow }) {
-  const products = useProducts();
-  const featured = products.find((p) => p.id === FEATURED_ID);
   const viewport = useViewportSize();
 
-  const canvasRef = useRef(null);
-  const [targetPoints, setTargetPoints] = useState(null);
-  const [box, setBox] = useState({ width: 300, height: 300 });
+  // Device pixel ratio, capped at 2 like useParticleField's own canvas. Every
+  // particle shape below is sampled on this grid and placed on whole screen
+  // pixels (`snap`), so settled shapes are as sharp as real text or a raster
+  // image instead of being smeared by the canvas's anti-aliasing.
+  const dpr = Math.min(typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1, 2);
+  const snap = (v) => Math.round(v * dpr) / dpr;
 
+  const canvasRef = useRef(null);
+
+  // Loaded once and kept: resampling for a new size (see below) reuses this
+  // already-decoded element instead of re-fetching and re-decoding the
+  // 5224px-wide PNG each time.
+  const [logoImg, setLogoImg] = useState(null);
   useEffect(() => {
-    if (!featured?.heroImage) return;
+    let cancelled = false;
     const img = new Image();
     img.onload = () => {
-      const w = narrow ? 220 : 320;
-      const h = Math.round((w * img.naturalHeight) / img.naturalWidth);
-      setBox({ width: w, height: h });
-      // Coarser than before (was sampleW:150/step:2) — the particle field
-      // is now only the transitional entrance; once it settles, a crisp
-      // <img> crossfades in over it (see `formed` below), so the dot
-      // density here just needs to read as "the product" mid-formation,
-      // not carry the final, readable image on its own anymore.
-      setTargetPoints(sampleToPoints(img, { sampleW: 130, step: 3 }));
+      if (!cancelled) setLogoImg(img);
     };
-    img.src = featured.heroImage;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [featured?.heroImage, narrow]);
+    img.src = LOGO_SRC;
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  // The "STUDIO" mark itself, on its own canvas — the product photo above
-  // forms on a separate canvas/target box, so the two particle fields
+  // The "STUDIO" mark itself, on its own canvas — the headline and the logo
+  // below each form on their own canvas/target box, so the particle fields
   // never compete for the same points.
   const headingCanvasRef = useRef(null);
   const [headingSource, setHeadingSource] = useState(null);
@@ -75,70 +106,188 @@ export default function HeroChapter({ progress, active, narrow }) {
     [viewport.width, headingBoxW, headingBoxH]
   );
 
-  // Particles scatter from anywhere on screen, not from a cloud hugging the
-  // product — the target box just says where on that full canvas the
-  // planter itself should resolve, vertically centered the same way the
-  // small wrapper below is (so the label anchors and the drawn particles
-  // always agree on where the shape actually is) — but never higher than
-  // clear of the intro copy block above it. Dead-centering in the full
-  // viewport was fine while the product only ever rendered as a sparse,
-  // partly-transparent particle field (the headline showing through its
-  // gaps was barely noticeable); now that it settles into an opaque
-  // photo, the same centering let it flatly cover "Objects, printed
-  // layer by layer." on every viewport size tested, desktop included.
-  // 246 is a generous estimate of the intro block's own height (eyebrow +
-  // up to a two-line clamp(26px,3.6vw,44px) heading + margin) — there's no
-  // ref-measured value for it, so this errs toward too much clearance
-  // rather than too little. The lower clamp keeps it from being pushed
-  // past the bottom edge entirely on short viewports where both can't be
-  // fully satisfied — clearing the headline wins (it's the one the brief
-  // calls out by name), the SCROLL hint at the very bottom may lose a
-  // little clearance there, but it's a small, low-emphasis affordance
-  // that fades out within the first few percent of scroll anyway.
-  const targetBox = useMemo(() => {
-    const centeredY = (viewport.height - box.height) / 2;
-    const clearOfIntro = HEADING_TOP + headingBoxH + 246;
-    const y = Math.min(Math.max(centeredY, clearOfIntro), viewport.height - box.height - 24);
-    return { x: (viewport.width - box.width) / 2, y, width: box.width, height: box.height };
-  }, [viewport.width, viewport.height, box.width, box.height, headingBoxH]);
+  // "Objects, printed / layer by layer." as particles. Drawn to an offscreen
+  // canvas in the same font, weight and (screen-width-scaled) size the DOM
+  // <h1> used to have, at DEVICE-pixel resolution, then sampled 1:1. The
+  // size is rounded to whole pixels so a window resize re-samples it a few
+  // times, not on every pixel of width.
+  const headlineCanvasRef = useRef(null);
+  const headlineCss = Math.round(Math.min(44, Math.max(26, viewport.width * 0.036)));
+  const [headlineSource, setHeadlineSource] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    const px = headlineCss * dpr;
+    const font = `800 ${px}px Sora, system-ui, sans-serif`;
+    // Drawing before the web font has arrived would bake the fallback
+    // typeface into the particles for good — wait for it.
+    const build = () => {
+      if (cancelled) return;
+      setHeadlineSource(
+        textLinesToSource(["OBJECTS, PRINTED", "LAYER BY LAYER."], {
+          font,
+          lineHeight: 1.1,
+          letterSpacing: `${(-0.01 * px).toFixed(2)}px`,
+          padding: Math.round(4 * dpr),
+        })
+      );
+    };
+    if (typeof document !== "undefined" && document.fonts?.load) document.fonts.load(font, "OBJECTS").then(build, build);
+    else build();
+    return () => {
+      cancelled = true;
+    };
+  }, [headlineCss, dpr]);
 
-  // Fires once both particle sets have real points to scatter — waiting
-  // for that (rather than firing immediately on mount) means the product
-  // photo and the heading are still genuinely scattered the moment this
-  // flips, so useParticleField's own catch-up easing plays a real
+  // Full density (one point per screen pixel) keeps the letters crisp; if
+  // that would be too many points (large text on a dense screen), fall back
+  // to every other pixel with correspondingly bigger particles.
+  const headline = useMemo(() => {
+    if (!headlineSource) return null;
+    let step = 1;
+    let points = sampleToPoints(headlineSource, { sampleW: headlineSource.width, step, alphaThreshold: 90 });
+    if (points.length > HEADLINE_MAX_POINTS) {
+      step = 2;
+      points = sampleToPoints(headlineSource, { sampleW: headlineSource.width, step, alphaThreshold: 90 });
+    }
+    return { points, step, width: headlineSource.width / dpr, height: headlineSource.height / dpr };
+  }, [headlineSource, dpr]);
+
+  // Vertical stack under the STUDIO mark: tagline (real text, measured),
+  // then the headline particles, then the logo in whatever room is left.
+  // Nothing here is a guessed height — the eyebrow is measured from the DOM
+  // and the rest come from the sampled shapes themselves — because a fixed
+  // estimate plus a fixed-size logo is what let the logo run into "BY
+  // LAYER." on wide-but-short windows (a 1920x1080 laptop at 125% scaling is
+  // only ~730px tall).
+  const introRef = useRef(null);
+  const slotRef = useRef(null);
+  const [slotTop, setSlotTop] = useState(0);
+  useEffect(() => {
+    const slot = slotRef.current;
+    const intro = introRef.current;
+    if (!slot || !intro) return;
+    const measure = () => setSlotTop(slot.offsetTop);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(intro);
+    return () => ro.disconnect();
+  }, []);
+
+  const introTop = HEADING_TOP + headingBoxH - INTRO_PULL_UP;
+  const headlineBox = useMemo(
+    () => ({
+      x: snap((viewport.width - (headline?.width ?? 0)) / 2),
+      y: snap(introTop + slotTop),
+      width: headline?.width ?? 0,
+      height: headline?.height ?? 0,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [viewport.width, introTop, slotTop, headline, dpr]
+  );
+
+  // The logo gets the vertical space left under the headline (minus room for
+  // the SCROLL hint), up to a per-screen ceiling, centred in it. The PNG's
+  // marks fill only ~86% of the disc's height and ~90% of that in width, so
+  // it is sampled cropped to the marks themselves (see sampleLogoToPoints) —
+  // otherwise that empty margin would eat the very space the logo needs.
+  // Sampled 1 point per screen pixel where that keeps the particle count
+  // sane; on very large logos / dense screens it steps down to 1 point per
+  // 2 screen pixels (still solid: the strokes are several pixels thick by
+  // then). Stepped to whole LOGO_STEP increments so dragging a window edge
+  // re-samples (and re-forms) the logo a handful of times, not on every
+  // pixel of resize.
+  const layoutReady = slotTop > 0 && headingBoxH > 0 && !!headline;
+  const bandTop = introTop + slotTop + (headline?.height ?? 0) + LOGO_GAP;
+  const bandH = viewport.height - bandTop - BOTTOM_RESERVE;
+  // (Phones are limited by width rather than this ceiling: the 0.8 * width
+  // term below caps them at about 340px on a 390px-wide screen.)
+  const maxLogoH = narrow ? 360 : Math.min(720, Math.max(420, viewport.height * 0.55));
+  const fittedH = Math.min(maxLogoH, bandH, (viewport.width * 0.8) / LOGO_ASPECT);
+  const wantH = Math.max(MIN_LOGO, Math.floor(fittedH / LOGO_STEP) * LOGO_STEP);
+  const discSamplesNeeded = (wantH * dpr) / LOGO_CONTENT_H;
+  const logoK = Math.max(1, Math.ceil(discSamplesNeeded / MAX_LOGO_SAMPLES));
+  const logoSamples = Math.round(discSamplesNeeded / logoK);
+  const cssPerSample = logoK / dpr;
+
+  // Waits for the layout to be measurable, so the very first sample is
+  // already the right size for this screen (not a default that then gets
+  // immediately re-sampled).
+  const [logo, setLogo] = useState(null);
+  useEffect(() => {
+    if (!logoImg || !layoutReady) return;
+    setLogo({ ...sampleLogoToPoints(logoImg, { size: logoSamples }), cssPerSample });
+  }, [logoImg, layoutReady, logoSamples, cssPerSample]);
+
+  const logoW = logo ? logo.width * logo.cssPerSample : wantH * LOGO_ASPECT;
+  const logoH = logo ? logo.height * logo.cssPerSample : wantH;
+  const targetBox = useMemo(
+    () => ({
+      x: snap((viewport.width - logoW) / 2),
+      y: snap(bandTop + Math.max(0, (bandH - logoH) / 2)),
+      width: logoW,
+      height: logoH,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [viewport.width, bandTop, bandH, logoW, logoH, dpr]
+  );
+
+  // Fires once every particle set has real points to scatter — waiting
+  // for that (rather than firing immediately on mount) means the logo, the
+  // headline and the STUDIO mark are still genuinely scattered the moment
+  // this flips, so useParticleField's own catch-up easing plays a real
   // materialize animation instead of appearing pre-formed. Deliberately
   // not tied to scroll `progress` at all: this chapter is what a visitor
   // sees before they've scrolled anywhere, so it has to reveal itself.
   const [entered, setEntered] = useState(false);
+  const logoPoints = logo ? logo.points : null;
+  const headlinePoints = headline ? headline.points : null;
   useEffect(() => {
-    if (!targetPoints || !headingTargetPoints || entered) return;
+    if (!logoPoints || !headingTargetPoints || !headlinePoints || entered) return;
     const raf = requestAnimationFrame(() => setEntered(true));
     return () => cancelAnimationFrame(raf);
-  }, [targetPoints, headingTargetPoints, entered]);
+  }, [logoPoints, headingTargetPoints, headlinePoints, entered]);
 
-  // Once the product's particle field settles, it crossfades into a real
-  // <img> (see the render below) — dots are inherently lower-fidelity than
-  // the actual photo, and the brief wants the product "consistently
-  // readable," not just recognizable mid-formation.
-  const [formed, setFormed] = useState(false);
+  // Everything on this screen enters off that one `entered` flip, so the
+  // STUDIO mark, the headline, the logo, the tagline and the rail all start
+  // at the same instant rather than one after another. The tagline (the
+  // only part that's still plain text) gets a rise + un-blur, echoing the
+  // particles materializing beside it.
+  const revealStyle = {
+    opacity: entered ? 1 : 0,
+    transform: entered ? "translateY(0)" : "translateY(18px)",
+    filter: entered ? "blur(0)" : "blur(6px)",
+    transition: `opacity ${REVEAL_MS}ms ease, transform ${REVEAL_MS}ms cubic-bezier(0.16,1,0.3,1), filter ${REVEAL_MS}ms ease`,
+  };
+
   const particleProgress = entered ? 1 : 0;
   useParticleField({
     canvasRef,
-    targetPoints,
+    targetPoints: logoPoints,
     progress: particleProgress,
     width: viewport.width,
     height: viewport.height,
     targetBox,
-    particleSize: 1.5,
+    // Exactly one sample's worth of screen, uniform: the logo is sampled on
+    // a pixel grid, so any larger or varied size would blur and rag it.
+    particleSize: cssPerSample,
+    uniformSize: true,
     catchUp: HERO_ENTRANCE_CATCH_UP,
-    onSettle: (v) => {
-      if (v >= 0.999) setFormed(true);
-    },
   });
 
-  // Forms alongside the product photo above, same as Catalog's "CATALOG"
-  // mark — it's the chapter's own persistent mark, not part of the intro
-  // copy's fade-out below.
+  useParticleField({
+    canvasRef: headlineCanvasRef,
+    targetPoints: headlinePoints,
+    progress: particleProgress,
+    width: viewport.width,
+    height: viewport.height,
+    targetBox: headlineBox,
+    particleSize: (headline?.step ?? 1) / dpr,
+    uniformSize: true,
+    catchUp: HERO_ENTRANCE_CATCH_UP,
+  });
+
+  // Forms alongside the logo above, same as Catalog's "CATALOG"
+  // mark — it's the chapter's own persistent mark.
   const headingP = entered ? 1 : 0;
   useParticleField({
     canvasRef: headingCanvasRef,
@@ -172,21 +321,7 @@ export default function HeroChapter({ progress, active, narrow }) {
     active,
   });
 
-  const introOpacity = 1 - clamp01((progress - 0.3) / 0.2);
-  const specP = clamp01((progress - 0.45) / 0.15) * (1 - clamp01((progress - 0.85) / 0.15));
   const railP = progress;
-
-  // The settled photo and the intro copy ("Objects, printed...") sit in
-  // the same region of the screen — scrolling back up to the very top
-  // (progress ~ 0, introOpacity at its max) used to show both at once,
-  // photo behind text, which read as an overlap. Rather than moving or
-  // resizing either one, they're made mutually exclusive: the photo's
-  // opacity is the intro copy's own opacity inverted, so it only becomes
-  // visible once the text has actually faded out, and reappears hidden the
-  // instant you scroll back up and the text comes back. Before the photo
-  // has even settled (`!formed`), it stays at 0 either way — nothing to
-  // show yet.
-  const imgOpacity = formed ? clamp01(1 - introOpacity) : 0;
 
   return (
     <div
@@ -224,7 +359,17 @@ export default function HeroChapter({ progress, active, narrow }) {
 
       <div
         aria-hidden
-        style={{ position: "absolute", right: 28, top: "50%", transform: "translateY(-50%)", width: 1, height: 160, background: "var(--border)" }}
+        style={{
+          position: "absolute",
+          right: 28,
+          top: "50%",
+          transform: "translateY(-50%)",
+          width: 1,
+          height: 160,
+          background: "var(--border)",
+          opacity: entered ? 1 : 0,
+          transition: `opacity ${REVEAL_MS}ms ease`,
+        }}
       >
         <div
           style={{
@@ -240,123 +385,72 @@ export default function HeroChapter({ progress, active, narrow }) {
         />
       </div>
 
-      <div
+      {/* Real heading for screen readers and search — the visible one is
+          the particle canvas below, which has no text of its own. */}
+      <h1
         style={{
           position: "absolute",
-          top: HEADING_TOP + headingBoxH + 32,
+          width: 1,
+          height: 1,
+          overflow: "hidden",
+          clip: "rect(0,0,0,0)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        Objects, printed layer by layer.
+      </h1>
+
+      {/* No scroll-linked fade of its own: the tagline and headline stay up
+          for as long as the STUDIO mark and the logo do, and the whole hero
+          leaves together via Journey's chapter exit. Fading the copy out
+          early used to leave the mark and the logo sitting alone with an
+          empty gap between them. The empty slot reserves the headline's
+          space in the flow (its particles are drawn on the canvas below,
+          positioned from this slot's measured offset). */}
+      <div
+        ref={introRef}
+        style={{
+          position: "absolute",
+          top: introTop,
           left: "50%",
           transform: "translateX(-50%)",
           width: "min(90vw, 460px)",
           textAlign: "center",
-          opacity: introOpacity,
-          pointerEvents: introOpacity > 0.05 ? "auto" : "none",
         }}
       >
-        <div className="eyebrow" style={{ justifyContent: "center", marginBottom: 16 }}>
+        <div className="eyebrow" style={{ justifyContent: "center", marginBottom: 16, ...revealStyle }}>
           Small-batch 3D print studio
         </div>
-        <h1 style={{ fontSize: "clamp(26px, 3.6vw, 44px)", lineHeight: 1.1, textTransform: "uppercase" }}>
-          Objects, printed
-          <br />
-          layer by layer.
-        </h1>
+        <div ref={slotRef} aria-hidden style={{ height: headline ? headline.height : 0 }} />
       </div>
 
-      {/* Restrained blue rim light — reads as light the photo is catching,
-          so it fades with the same imgOpacity the photo itself uses. */}
-      <div
+      <canvas
+        ref={headlineCanvasRef}
         aria-hidden
         style={{
           position: "absolute",
-          left: targetBox.x - targetBox.width * 0.18,
-          top: targetBox.y - targetBox.height * 0.18,
-          width: targetBox.width * 1.36,
-          height: targetBox.height * 1.36,
-          borderRadius: "50%",
-          background: "radial-gradient(closest-side, rgba(61,107,255,0.16), rgba(61,107,255,0.05) 55%, transparent 75%)",
-          opacity: imgOpacity,
-          transition: "opacity 600ms ease",
+          inset: 0,
           pointerEvents: "none",
+          opacity: entered ? 1 : 0,
+          transition: "opacity 900ms ease",
         }}
       />
 
-      {/* Stands in for the photo whenever the photo itself is hidden — not
-          just pre-settle, but also whenever the intro copy is occupying
-          this same spot (see `imgOpacity`) — so the settled shape stays
-          visible as particles instead of leaving nothing on screen while
-          the text is up front. */}
+      {/* The logo, as particles. The canvas spans the whole viewport (the
+          particles scatter from anywhere on screen), so the accessible
+          name lives here rather than on anything sized to the logo. */}
       <canvas
         ref={canvasRef}
+        role="img"
+        aria-label="YZ Labs logo"
         style={{
           position: "absolute",
           inset: 0,
-          filter: "drop-shadow(0 24px 30px rgba(0,0,0,0.55))",
           pointerEvents: "none",
-          opacity: entered ? 1 - imgOpacity : 0,
+          opacity: entered ? 1 : 0,
           transition: "opacity 600ms ease",
         }}
       />
-
-      {/* The particle field stands in whenever this is hidden — see
-          `imgOpacity` above for why that's not simply "once settled." */}
-      {featured?.heroImage && (
-        <img
-          src={featured.heroImage}
-          alt={featured.name}
-          style={{
-            position: "absolute",
-            left: targetBox.x,
-            top: targetBox.y,
-            width: targetBox.width,
-            height: targetBox.height,
-            objectFit: "contain",
-            filter: "drop-shadow(0 24px 30px rgba(0,0,0,0.55))",
-            opacity: imgOpacity,
-            transition: "opacity 600ms ease",
-            pointerEvents: "none",
-          }}
-        />
-      )}
-
-      {/* Positioned to match targetBox exactly, not flex-centered like it
-          used to be — targetBox stopped being simple viewport-center once
-          it started clamping to clear the intro text above (see the
-          targetBox comment), so this anchor has to track it explicitly or
-          the spec labels drift away from the product they're labeling. */}
-      <div style={{ position: "absolute", left: targetBox.x, top: targetBox.y, width: targetBox.width, height: targetBox.height }}>
-        {!narrow && (
-          <>
-            <SpecLabel side="left" top="14%" label="Material" value={featured?.material} visible={specP} />
-            <SpecLabel side="right" top="40%" label="Dimensions" value={featured?.dims} visible={specP} />
-            <SpecLabel side="left" top="66%" label="Weight" value={featured?.weight} visible={specP} />
-            <SpecLabel side="right" top="88%" label="Price" value={featured ? `₹${featured.price}` : null} visible={specP} />
-          </>
-        )}
-      </div>
-
-      {narrow && (
-        <div
-          className="mono"
-          style={{
-            position: "absolute",
-            bottom: "16%",
-            left: "50%",
-            transform: "translateX(-50%)",
-            display: "flex",
-            gap: 18,
-            fontSize: 11,
-            color: "var(--fg-dim)",
-            opacity: specP,
-            textAlign: "center",
-          }}
-        >
-          <span>{featured?.material}</span>
-          <span style={{ color: "var(--muted)" }}>·</span>
-          <span>{featured?.dims}</span>
-          <span style={{ color: "var(--muted)" }}>·</span>
-          <span>₹{featured?.price}</span>
-        </div>
-      )}
 
       <div
         className="mono"
@@ -371,7 +465,7 @@ export default function HeroChapter({ progress, active, narrow }) {
           opacity: 1 - clamp01(progress / 0.08),
         }}
       >
-        SCROLL
+        <div style={{ opacity: entered ? 1 : 0, transition: `opacity ${REVEAL_MS}ms ease` }}>SCROLL</div>
       </div>
     </div>
   );

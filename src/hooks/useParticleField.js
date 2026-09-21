@@ -26,7 +26,11 @@ const SETTLE_EPSILON = 0.0008;
 // as "materializing out of the world" instead of "a sprite fading in."
 // `targetBox` places the formed shape's own on-screen rectangle within
 // that full canvas; `targetPoints` stay normalized 0..1 within that box.
-export default function useParticleField({ canvasRef, targetPoints, progress, width, height, targetBox, particleSize = 1.6, catchUp = CATCH_UP, onSettle }) {
+// `uniformSize` (opt-in, off for every existing caller) draws every particle
+// at exactly `particleSize` instead of the usual +/-30% random variation —
+// for shapes sampled 1 point per screen pixel (the Hero logo), where any size
+// jitter reads as ragged, broken edges once the shape has settled.
+export default function useParticleField({ canvasRef, targetPoints, progress, width, height, targetBox, particleSize = 1.6, uniformSize = false, catchUp = CATCH_UP, onSettle }) {
   const dprRef = useRef(1);
   const catchUpRef = useRef(catchUp);
   catchUpRef.current = catchUp;
@@ -61,7 +65,7 @@ export default function useParticleField({ canvasRef, targetPoints, progress, wi
       sx: Math.random() * width,
       sy: Math.random() * height,
       color: p.color,
-      size: particleSize * (0.75 + Math.random() * 0.6),
+      size: uniformSize ? particleSize : particleSize * (0.75 + Math.random() * 0.6),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetPoints]);
@@ -108,10 +112,19 @@ export default function useParticleField({ canvasRef, targetPoints, progress, wi
       const pts = particlesRef.current;
       if (!pts.length) return;
       const t = easeOutCubic(clamp01(p));
+      // Setting fillStyle means re-parsing a colour string, which is the
+      // dominant per-particle cost — skip it when the colour hasn't changed
+      // from the previous particle (shapes whose points are ordered by
+      // colour, like the Hero logo, then do it a few hundred times per
+      // frame instead of tens of thousands).
+      let lastColor = null;
       for (const particle of pts) {
         const x = particle.sx + (particle.tx - particle.sx) * t;
         const y = particle.sy + (particle.ty - particle.sy) * t;
-        ctx.fillStyle = particle.color;
+        if (particle.color !== lastColor) {
+          ctx.fillStyle = particle.color;
+          lastColor = particle.color;
+        }
         ctx.fillRect(x, y, particle.size, particle.size);
       }
     }
