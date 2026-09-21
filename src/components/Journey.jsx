@@ -36,6 +36,21 @@ const BANDS = {
   getInTouch: [5 / 6, 1],
 };
 
+// Where inside its chapter's band each hash link (#catalog, #process, ...)
+// lands, as a fraction of that band. It can NOT be 0: every chapter fades
+// in over the first stretch of its band (and the previous one has just
+// finished fading out at that same boundary), so scrolling to a band's
+// exact start shows an empty screen — that's what "Process" did. Each
+// value is the earliest point where that chapter is fully visible AND its
+// own content has finished forming (its heading, and the first thing under
+// it): Process gets there by ~13% (its steps advance quickly, so it can't
+// land any later without already fading step 1 out), while Catalog,
+// Materials and the closing chapter take longer to assemble.
+const ANCHOR_AT = { catalog: 0.42, process: 0.13, materials: 0.42, contact: 0.62 };
+function anchorTop(band, at) {
+  return `${(band[0] + at * (band[1] - band[0])) * (TOTAL_VH - 100)}vh`;
+}
+
 function clamp01(v) {
   return Math.max(0, Math.min(1, v));
 }
@@ -176,10 +191,10 @@ export default function Journey() {
           /#process/#materials hash links still land at the right scroll
           depth — camera state is a pure function of scrollY, so jumping
           scrollY here correctly lands the right chapter on screen. */}
-      <div id="catalog" aria-hidden style={{ position: "absolute", top: `${BANDS.catalog[0] * (TOTAL_VH - 100)}vh`, width: 1, height: 1 }} />
-      <div id="process" aria-hidden style={{ position: "absolute", top: `${BANDS.process[0] * (TOTAL_VH - 100)}vh`, width: 1, height: 1 }} />
-      <div id="materials" aria-hidden style={{ position: "absolute", top: `${BANDS.materials[0] * (TOTAL_VH - 100)}vh`, width: 1, height: 1 }} />
-      <div id="contact" aria-hidden style={{ position: "absolute", top: `${BANDS.getInTouch[0] * (TOTAL_VH - 100)}vh`, width: 1, height: 1 }} />
+      <div id="catalog" aria-hidden style={{ position: "absolute", top: anchorTop(BANDS.catalog, ANCHOR_AT.catalog), width: 1, height: 1 }} />
+      <div id="process" aria-hidden style={{ position: "absolute", top: anchorTop(BANDS.process, ANCHOR_AT.process), width: 1, height: 1 }} />
+      <div id="materials" aria-hidden style={{ position: "absolute", top: anchorTop(BANDS.materials, ANCHOR_AT.materials), width: 1, height: 1 }} />
+      <div id="contact" aria-hidden style={{ position: "absolute", top: anchorTop(BANDS.getInTouch, ANCHOR_AT.contact), width: 1, height: 1 }} />
 
       <div style={{ position: "sticky", top: 0, height: "100svh", overflow: "hidden" }}>
         {/* Each wrapper spans the full viewport even when its chapter is
