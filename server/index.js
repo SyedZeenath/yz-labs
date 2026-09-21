@@ -7,9 +7,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Razorpay from "razorpay";
 import nodemailer from "nodemailer";
-import { resolveProductPrice } from "../src/data/products.js";
 import { validateShipping } from "../src/lib/address.js";
 import { buildOrderEmail, encodeItemsNote } from "./orderEmail.js";
+import { priceCart } from "./pricing.js";
+import { DISCOUNTS, lookupDiscount, checkEligibility, listOffers, looksLikeMultipleCodes, ONE_CODE_PER_ORDER } from "./discounts.js";
+import { createLedger, customerKeys } from "./orderLedger.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(__dirname, "..", "dist");
@@ -32,10 +34,19 @@ if (!KEY_ID || !KEY_SECRET) {
 
 const razorpay = KEY_ID && KEY_SECRET ? new Razorpay({ key_id: KEY_ID, key_secret: KEY_SECRET }) : null;
 
-// In-memory order ledger — fine for local dev/testing, but this resets on
-// every restart and isn't shared across server instances. Swap for a real
-// database (Postgres, Supabase, etc.) before accepting real payments.
-const orders = new Map();
+// Token for GET /api/admin/discounts (the discount usage report). Unset means
+// that endpoint doesn't exist at all.
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+
+// Who has ordered and which discounts they've used — rebuilt from Razorpay's
+// own order list, so it survives this host's wiped-on-restart disk. See
+// orderLedger.js. (Single server instance assumed, as before.)
+const ledger = createLedger({
+  fetchOrdersPage: ({ skip, count }) => {
+    if (!razorpay) throw new Error("Razorpay is not configured");
+    return razorpay.orders.all({ skip, count });
+  },
+});
 
 // Contact form mail. CONTACT_EMAIL_USER authenticates and sends; the
 // message lands in CONTACT_TO_EMAIL (defaults to that same address, so a
@@ -62,7 +73,7 @@ const mailer =
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Per-IP submission log, purely to stop the contact form being used to
-// blast the inbox. In-memory like `orders` above, so it resets on restart;
+// blast the inbox. In-memory, so it resets on restart;
 // fine for the volume a small storefront actually gets.
 const contactSubmissions = new Map();
 const CONTACT_WINDOW_MS = 60 * 60 * 1000;
@@ -99,7 +110,16 @@ async function notifyOrderPaid(orderId, paymentId) {
   notifiedOrders.add(orderId);
   try {
     const order = await razorpay.orders.fetch(orderId);
-    const email = buildOrderEmail(order, paymentId);
+    // Make sure the ledger knows this order is paid even if the server
+    // restarted between checkout and payment (it was rebuilt from Razorpay's
+    // list, or not at all yet) — a paid discounted order must count against
+    // the customer's limit.
+    ledger.upsertFromRazorpay(order, { forcePaid: true, paymentId });
+    const duplicateDiscount = ledger.isDuplicateRedemption(orderId);
+    if (duplicateDiscount) {
+      console.warn(`[server] DUPLICATE DISCOUNT on ${orderId}: this customer had already used the code on an earlier paid order.`);
+    }
+    const email = buildOrderEmail(order, paymentId, { duplicateDiscount });
     // Always in the server log too — the one place an order is recorded even
     // if email isn't configured or delivery fails.
     console.log(`[server] PAID ORDER ${orderId}\n${email.text}`);
@@ -121,6 +141,12 @@ async function notifyOrderPaid(orderId, paymentId) {
 }
 
 const app = express();
+// On Render every request arrives through their proxy, so without this
+// `req.ip` is the proxy's address for EVERYONE — the per-IP limits (contact
+// form, discount-code checks) would then be one shared bucket for the whole
+// site. Trust exactly one hop there; not locally, where the header could be
+// forged by anyone.
+if (process.env.RENDER) app.set("trust proxy", 1);
 app.use(cors());
 
 // Webhook route needs the raw request body to verify Razorpay's signature,
@@ -141,7 +167,7 @@ app.post("/api/webhook", express.raw({ type: "*/*" }), (req, res) => {
 
   const orderId = event.payload?.payment?.entity?.order_id;
   if (orderId && event.event === "payment.captured") {
-    if (orders.has(orderId)) orders.get(orderId).status = "paid";
+    ledger.markPaid(orderId, event.payload.payment.entity.id);
     notifyOrderPaid(orderId, event.payload.payment.entity.id);
   }
 
@@ -150,15 +176,73 @@ app.post("/api/webhook", express.raw({ type: "*/*" }), (req, res) => {
 
 app.use(express.json());
 
+// Tiny in-memory per-IP limiter: returns a function that records a hit for an
+// IP and says whether it has now gone over `max` within `windowMs`.
+function makeLimiter(windowMs, max) {
+  const hits = new Map();
+  return (ip) => {
+    const now = Date.now();
+    const recent = (hits.get(ip) || []).filter((t) => now - t < windowMs);
+    recent.push(now);
+    hits.set(ip, recent);
+    return recent.length > max;
+  };
+}
+// Checking a typed code is capped tightly so it can't be used to guess codes
+// by brute force. Listing the offers takes no code (it only ever returns
+// codes the shop chose to advertise), so it gets a far looser cap — the cart
+// asks for it every time it opens or changes.
+const codeCheckLimited = makeLimiter(10 * 60 * 1000, 40);
+const offersLimited = makeLimiter(10 * 60 * 1000, 120);
+const clientIp = (req) => req.ip || req.socket?.remoteAddress || "unknown";
+
+// Is this code good for this cart? Deliberately knows nothing about WHO is
+// asking: whether the customer has already used it (or has ordered before)
+// can only be decided once they've entered their details, so that check
+// happens in /api/create-order — this is just the "does it exist and what
+// would it take off" preview the cart shows.
+app.post("/api/discount/preview", (req, res) => {
+  if (codeCheckLimited(clientIp(req))) {
+    return res.status(429).json({ ok: false, error: "Too many attempts. Please try again in a few minutes." });
+  }
+  if (looksLikeMultipleCodes(req.body?.code)) return res.status(400).json({ ok: false, error: ONE_CODE_PER_ORDER });
+  const priced = priceCart(req.body?.items);
+  if (!priced.ok) return res.status(priced.status).json({ ok: false, error: priced.error });
+
+  const found = lookupDiscount(req.body?.code, priced.subtotalPaise);
+  if (!found.ok) return res.status(400).json({ ok: false, error: found.error });
+
+  res.json({
+    ok: true,
+    code: found.code,
+    description: found.def.description || "",
+    subtotalPaise: priced.subtotalPaise,
+    discountPaise: found.discountPaise,
+    totalPaise: priced.subtotalPaise - found.discountPaise,
+  });
+});
+
+// The offers the cart advertises under "Check available offers": only codes
+// marked `listed` in discounts.js, each with what it would save on THIS cart
+// (or, if the cart is under its minimum, how much more to add). Unlisted
+// codes are never returned — they only work if typed.
+app.post("/api/discount/offers", (req, res) => {
+  if (offersLimited(clientIp(req))) {
+    return res.status(429).json({ ok: false, error: "Too many requests. Please try again in a few minutes." });
+  }
+  const priced = priceCart(req.body?.items);
+  if (!priced.ok) return res.status(priced.status).json({ ok: false, error: priced.error });
+  res.json({ ok: true, offers: listOffers(priced.subtotalPaise) });
+});
+
 app.post("/api/create-order", async (req, res) => {
   if (!razorpay) {
     return res.status(500).json({ error: "Razorpay is not configured on the server yet — add keys to .env." });
   }
 
-  const items = req.body?.items;
-  if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: "Cart is empty." });
-  }
+  const priced = priceCart(req.body?.items);
+  if (!priced.ok) return res.status(priced.status).json({ error: priced.error });
+  const { lineItems, subtotalPaise } = priced;
 
   // Delivery details are required before an order exists at all — the
   // checkout form validates them too, but this is the check that counts.
@@ -168,61 +252,94 @@ app.post("/api/create-order", async (req, res) => {
     return res.status(400).json({ error: `Delivery details: ${firstError}`, fields: shippingResult.errors });
   }
   const shipping = shippingResult.value;
+  const address = [shipping.line1, shipping.line2].filter(Boolean).join(", ");
+  // Recorded on EVERY order (not just discounted ones): "first order only"
+  // codes need to know whether this customer has ever paid before.
+  const keys = customerKeys({ email: shipping.email, phone: shipping.phone, address, pincode: shipping.pincode });
 
-  let amount = 0;
-  const lineItems = [];
-  for (const { id, colorId, qty } of items) {
-    // Price (and which color it resolves to) is looked up server-side from
-    // the product catalog only — a client-sent colorId can pick *which*
-    // known color's price applies, never override the price itself.
-    const resolved = resolveProductPrice(id, colorId);
-    const price = resolved?.price;
-    // Razorpay will flat-out refuse to create an order for a line/total
-    // amount of ₹0 — that's exactly the rejection this was built to catch.
-    // A product with no real price yet should be pulled from the catalog
-    // (src/data/products.js), not left orderable at ₹0.
-    if (!resolved || !Number.isFinite(price) || price <= 0) {
-      return res.status(400).json({ error: `"${id}" doesn't have a valid price yet and can't be ordered.` });
+  // At most one code per order — the checkout only takes a single code, and
+  // this only ever looks at that one.
+  let discount = null;
+  const codeInput = req.body?.discountCode;
+  if (looksLikeMultipleCodes(codeInput)) {
+    return res.status(400).json({ error: ONE_CODE_PER_ORDER, discountRejected: true });
+  }
+  if (codeInput !== undefined && codeInput !== null && codeInput !== "") {
+    const found = lookupDiscount(codeInput, subtotalPaise);
+    if (!found.ok) return res.status(400).json({ error: found.error, discountRejected: true });
+
+    // Decided against Razorpay's own record of past orders (see
+    // orderLedger.js). If that can't be read at all, don't hand out a
+    // once-per-customer discount on no information — ask them to retry.
+    try {
+      await ledger.ensureFresh();
+    } catch (err) {
+      console.error("[server] couldn't load order history to check a discount:", err);
+      return res.status(503).json({ error: "We couldn't verify that discount just now. Please try again in a moment." });
     }
-    if (!Number.isInteger(qty) || qty <= 0) {
-      return res.status(400).json({ error: `Invalid quantity for: ${id}` });
-    }
-    amount += price * qty;
-    lineItems.push({ id, colorId: resolved.color?.id, qty, price });
+    const eligible = checkEligibility(found, keys, ledger);
+    if (!eligible.ok) return res.status(400).json({ error: eligible.error, discountRejected: true });
+    discount = found;
   }
 
-  const amountPaise = Math.round(amount * 100);
+  const discountPaise = discount ? discount.discountPaise : 0;
+  const totalPaise = subtotalPaise - discountPaise;
   // Razorpay's actual minimum order amount is ₹1 (100 paise), not just
   // "more than zero" — enforce the real rule, not a looser stand-in for it.
-  if (amountPaise < 100) {
+  if (totalPaise < 100) {
     return res.status(400).json({ error: "Order total must be at least ₹1." });
   }
 
   try {
     const order = await razorpay.orders.create({
-      amount: amountPaise, // Razorpay wants the amount in paise
+      amount: totalPaise, // Razorpay wants the amount in paise
       currency: "INR",
       receipt: `yzlabs_${Date.now()}`,
-      // Razorpay notes are the durable record of where this order ships —
-      // the in-memory `orders` ledger below is lost on every restart, and
-      // the Razorpay dashboard shows notes alongside each payment. Each
-      // value stays under Razorpay's 256-character-per-note limit
-      // (line1 + line2 are capped at 120 apiece by the validator).
+      // Razorpay notes are the durable record of who bought what, where it
+      // ships, and which discount was used — this server's own memory of
+      // orders is rebuilt FROM these (orderLedger.js), and the Razorpay
+      // dashboard shows them alongside each payment. Each value stays under
+      // Razorpay's 256-character-per-note limit (line1 + line2 are capped at
+      // 120 apiece by the validator).
       notes: {
         items: encodeItemsNote(lineItems),
         ship_name: shipping.name,
         ship_phone: `+91${shipping.phone}`,
         ship_email: shipping.email,
-        ship_address: [shipping.line1, shipping.line2].filter(Boolean).join(", "),
+        ship_address: address,
         ship_city: shipping.city,
         ship_state: shipping.state,
         ship_pincode: shipping.pincode,
+        ...(discount
+          ? {
+              discount_code: discount.code,
+              discount_paise: String(discountPaise),
+              subtotal_paise: String(subtotalPaise),
+            }
+          : {}),
       },
     });
 
-    orders.set(order.id, { status: "created", amount, lineItems, shipping, createdAt: Date.now() });
+    ledger.record({
+      id: order.id,
+      status: "created",
+      code: discount ? discount.code : null,
+      discountPaise,
+      subtotalPaise,
+      totalPaise,
+      keys,
+      email: shipping.email,
+      createdAt: Date.now(),
+    });
 
-    res.json({ orderId: order.id, amount: order.amount, currency: order.currency, keyId: KEY_ID });
+    res.json({
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      keyId: KEY_ID,
+      subtotalPaise,
+      discount: discount ? { code: discount.code, paise: discountPaise } : null,
+    });
   } catch (err) {
     console.error("[server] create-order failed:", err);
     // Razorpay's SDK sets `statusCode` on the error — a 401 means the API
@@ -257,11 +374,7 @@ app.post("/api/verify-payment", (req, res) => {
     return res.status(400).json({ ok: false, error: "Payment signature verification failed." });
   }
 
-  const order = orders.get(razorpay_order_id);
-  if (order) {
-    order.status = "paid";
-    order.paymentId = razorpay_payment_id;
-  }
+  ledger.markPaid(razorpay_order_id, razorpay_payment_id);
 
   // Not awaited: the customer's confirmation shouldn't wait on our email.
   notifyOrderPaid(razorpay_order_id, razorpay_payment_id);
@@ -269,8 +382,68 @@ app.post("/api/verify-payment", (req, res) => {
   res.json({ ok: true });
 });
 
+// Discount usage report: per code, how many paid orders used it, how much it
+// took off, and each redemption (order, date, customer email, amounts, and
+// whether it beat the once-per-customer rule). Read from the same ledger
+// that enforces the rules, refreshed from Razorpay first. Off unless
+// ADMIN_TOKEN is set; then needs `Authorization: Bearer <ADMIN_TOKEN>`.
+app.get("/api/admin/discounts", async (req, res) => {
+  if (!ADMIN_TOKEN) return res.status(404).json({ error: "Not found." });
+  const given = Buffer.from(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
+  const want = Buffer.from(ADMIN_TOKEN);
+  if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) {
+    return res.status(401).json({ error: "Unauthorized." });
+  }
+
+  let warning = null;
+  try {
+    await ledger.ensureFresh(0);
+  } catch (err) {
+    warning = `Couldn't refresh from Razorpay (${err?.message || err}); showing only what this server has seen since it started.`;
+  }
+
+  const stats = ledger.statsByCode();
+  const rupees = (paise) => paise / 100;
+  const report = (code, def, s = { paid: [], started: 0 }) => ({
+    code,
+    description: def?.description || "(not defined any more)",
+    active: def ? def.active !== false : false,
+    paidRedemptions: s.paid.length,
+    totalDiscountGiven: rupees(s.paid.reduce((sum, o) => sum + o.discountPaise, 0)),
+    checkoutsStartedNotPaid: s.started,
+    redemptions: s.paid
+      .slice()
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map((o) => ({
+        orderId: o.id,
+        at: o.createdAt ? new Date(o.createdAt).toISOString() : null,
+        customerEmail: o.email,
+        subtotal: rupees(o.subtotalPaise),
+        discount: rupees(o.discountPaise),
+        paid: rupees(o.totalPaise),
+        duplicateOfEarlierUse: ledger.isDuplicateRedemption(o.id),
+      })),
+  });
+
+  const discounts = Object.entries(DISCOUNTS).map(([code, def]) => report(code, def, stats.get(code)));
+  // Codes that appear on past orders but are no longer defined (retired).
+  for (const [code, s] of stats) if (!Object.hasOwn(DISCOUNTS, code)) discounts.push(report(code, null, s));
+
+  res.json({
+    generatedAt: new Date().toISOString(),
+    historyLoadedFromRazorpayAt: ledger.hydratedAt() ? new Date(ledger.hydratedAt()).toISOString() : null,
+    ...(warning ? { warning } : {}),
+    discounts,
+  });
+});
+
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, razorpayConfigured: Boolean(razorpay), contactFormConfigured: Boolean(mailer) });
+  res.json({
+    ok: true,
+    razorpayConfigured: Boolean(razorpay),
+    contactFormConfigured: Boolean(mailer),
+    discountHistoryLoaded: ledger.isLoaded(),
+  });
 });
 
 app.post("/api/contact", async (req, res) => {
@@ -371,4 +544,13 @@ if (process.env.NODE_ENV === "production" || process.env.RENDER) {
 
 app.listen(PORT, () => {
   console.log(`[server] listening on http://localhost:${PORT}`);
+  // Load who-has-ordered-what from Razorpay now, so the first discounted
+  // checkout doesn't have to wait for it. If it fails, discounted checkouts
+  // retry the load themselves (and refuse to guess if it still can't).
+  if (razorpay) {
+    ledger
+      .hydrate()
+      .then((n) => console.log(`[server] loaded ${n} past orders from Razorpay for discount history.`))
+      .catch((err) => console.error("[server] couldn't load order history from Razorpay yet:", err?.message || err));
+  }
 });

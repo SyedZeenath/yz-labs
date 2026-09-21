@@ -18,3 +18,5 @@ services:
         sync: false
       - key: CONTACT_TO_EMAIL
         sync: false
+      - key: ADMIN_TOKEN
+        sync: false
