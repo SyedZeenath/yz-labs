@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { DISCOUNTS, lookupDiscount, checkEligibility, normalizeCode, listOffers, describeTerms, looksLikeMultipleCodes, ONE_CODE_PER_ORDER } from "./discounts.js";
 import { createLedger, canonicalEmail, customerKeys } from "./orderLedger.js";
 import { priceCart } from "./pricing.js";
-import { buildOrderEmail } from "./orderEmail.js";
+import { buildCustomerEmail, buildOrderEmail } from "./orderEmail.js";
 
 // Temporarily defines codes for a test, always removing them afterwards.
 function withCodes(codes, fn) {
@@ -280,6 +280,50 @@ test("the owner's order email shows the discount and flags duplicates", () => {
   // and an ordinary undiscounted order still reads as before
   const none = buildOrderEmail({ id: "o", amount: 100000, notes: { ship_name: "B" } }, "p");
   assert.doesNotMatch(none.text, /TOTALS|Discount/);
+});
+
+test("the customer's confirmation lists the order, the address and what happens next", () => {
+  const order = {
+    id: "order_1",
+    amount: 80250,
+    notes: {
+      ship_name: "Asha Rao", ship_email: "asha@example.com", ship_phone: "9876543210",
+      ship_address: "12 MG Road", ship_city: "Bengaluru", ship_state: "Karnataka", ship_pincode: "560001",
+      items: "round-planter|black|1|1070", discount_code: "FIRSTBUY25", discount_paise: "26750", subtotal_paise: "107000",
+    },
+  };
+  const mail = buildCustomerEmail(order, "pay_1", { email: "shop@example.com", phone: "+91 1" });
+  assert.equal(mail.to, "asha@example.com");
+  assert.equal(mail.replyTo, "shop@example.com");
+  assert.match(mail.subject, /confirmed \(Rs 802\.50\)/);
+  assert.match(mail.text, /^Hi Asha Rao,/);
+  assert.match(mail.text, /Order ID:\s+order_1/);
+  assert.match(mail.text, /1 x .*Rs 1070 each/);
+  assert.match(mail.text, /Subtotal:\s+Rs 1,070/);
+  assert.match(mail.text, /Discount \(FIRSTBUY25\): -Rs 267\.50/);
+  assert.match(mail.text, /Total paid:\s+Rs 802\.50/);
+  assert.match(mail.text, /12 MG Road/);
+  assert.match(mail.text, /Bengaluru, Karnataka - 560001/);
+  assert.match(mail.text, /3-5 business days/);
+  assert.match(mail.text, /call \+91 1/);
+  // no internal notes leak to the customer
+  assert.doesNotMatch(mail.text, /CHECK|CUSTOMER|Phone:/);
+  // undiscounted: no discount lines
+  const plain = buildCustomerEmail({ id: "o", amount: 100000, notes: { ship_email: "b@example.com" } }, "p");
+  assert.match(plain.text, /^Hi,/);
+  assert.match(plain.text, /Total paid: Rs 1,000/);
+  assert.doesNotMatch(plain.text, /Discount|Subtotal/);
+});
+
+test("no customer confirmation without a usable email, and newlines in fields can't break lines or headers", () => {
+  assert.equal(buildCustomerEmail({ id: "o", amount: 100, notes: {} }, "p"), null);
+  assert.equal(buildCustomerEmail({ id: "o", amount: 100, notes: { ship_email: "not-an-email" } }, "p"), null);
+  assert.equal(buildCustomerEmail({ id: "o", amount: 100 }, "p"), null);
+  const notes = { ship_email: "a@b.co", ship_name: "Evil\r\nBcc: x@y.z", ship_address: "1 Road\nLine 2" };
+  const mail = buildCustomerEmail({ id: "o", amount: 100, notes }, "p");
+  assert.match(mail.text, /^Hi Evil Bcc: x@y\.z,/);
+  assert.match(mail.text, /1 Road Line 2/);
+  assert.equal(mail.to, "a@b.co");
 });
 
 // ---------------------------------------------------------------- offers list

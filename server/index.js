@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import Razorpay from "razorpay";
 import nodemailer from "nodemailer";
 import { validateShipping } from "../src/lib/address.js";
-import { buildOrderEmail, encodeItemsNote } from "./orderEmail.js";
+import { buildCustomerEmail, buildOrderEmail, encodeItemsNote } from "./orderEmail.js";
 import { priceCart } from "./pricing.js";
 import { DISCOUNTS, lookupDiscount, checkEligibility, listOffers, looksLikeMultipleCodes, ONE_CODE_PER_ORDER } from "./discounts.js";
 import { createLedger, customerKeys } from "./orderLedger.js";
@@ -92,24 +92,41 @@ function recordSubmission(ip) {
   contactSubmissions.set(ip, recent);
 }
 
-// Emails the shop one summary per paid order (customer, items, delivery
-// address) to CONTACT_TO_EMAIL. Called from both /api/verify-payment (the
-// customer's browser confirming) and the Razorpay webhook (Razorpay
-// confirming directly, which still fires if the customer closes the tab
-// right after paying) — whichever arrives first sends it, the other is
-// skipped. The details come from Razorpay's own copy of the order rather
-// than the in-memory ledger, so a server restart between checkout and
-// payment doesn't lose them.
-const notifiedOrders = new Set();
+// After a paid order, sends two emails: a summary to the shop
+// (CONTACT_TO_EMAIL: customer, items, delivery address) and a confirmation to
+// the customer (what they bought, where it's going, what happens next).
+// Called from both /api/verify-payment (the customer's browser confirming) and
+// the Razorpay webhook (Razorpay confirming directly, which still fires if the
+// customer closes the tab right after paying) — whichever arrives first sends
+// them, the other is skipped. The details come from Razorpay's own copy of the
+// order rather than the in-memory ledger, so a server restart between checkout
+// and payment doesn't lose them.
+//
+// The two emails are claimed and retried independently: one failing (Gmail
+// hiccup, a customer address that bounces) never stops the other, and a retry
+// from the second confirmation path only resends the one that hasn't gone.
+const notifiedOrders = new Set(); // shop email sent
+const confirmedOrders = new Set(); // customer email sent
+const SHOP_PHONE = process.env.SHOP_PHONE || "+91 8660 828944";
 
 async function notifyOrderPaid(orderId, paymentId) {
-  if (notifiedOrders.has(orderId)) return;
   if (!razorpay) return;
+  const sendShop = !notifiedOrders.has(orderId);
+  const sendCustomer = !confirmedOrders.has(orderId);
+  if (!sendShop && !sendCustomer) return;
   // Claimed before the first await so verify + webhook arriving together
   // can't both send. Released again on failure so the other path can retry.
-  notifiedOrders.add(orderId);
+  if (sendShop) notifiedOrders.add(orderId);
+  if (sendCustomer) confirmedOrders.add(orderId);
+  const release = () => {
+    if (sendShop) notifiedOrders.delete(orderId);
+    if (sendCustomer) confirmedOrders.delete(orderId);
+  };
+
+  let order;
+  let shopEmail;
   try {
-    const order = await razorpay.orders.fetch(orderId);
+    order = await razorpay.orders.fetch(orderId);
     // Make sure the ledger knows this order is paid even if the server
     // restarted between checkout and payment (it was rebuilt from Razorpay's
     // list, or not at all yet) — a paid discounted order must count against
@@ -119,24 +136,55 @@ async function notifyOrderPaid(orderId, paymentId) {
     if (duplicateDiscount) {
       console.warn(`[server] DUPLICATE DISCOUNT on ${orderId}: this customer had already used the code on an earlier paid order.`);
     }
-    const email = buildOrderEmail(order, paymentId, { duplicateDiscount });
-    // Always in the server log too — the one place an order is recorded even
-    // if email isn't configured or delivery fails.
-    console.log(`[server] PAID ORDER ${orderId}\n${email.text}`);
-    if (!mailer) {
-      console.warn("[server] order notification email skipped: CONTACT_EMAIL_USER / CONTACT_EMAIL_PASS are not set.");
-      return;
-    }
-    await mailer.sendMail({
-      from: `"YZ Labs orders" <${CONTACT_EMAIL_USER}>`,
-      to: CONTACT_TO_EMAIL,
-      replyTo: email.replyTo,
-      subject: email.subject,
-      text: email.text,
-    });
+    shopEmail = buildOrderEmail(order, paymentId, { duplicateDiscount });
   } catch (err) {
-    notifiedOrders.delete(orderId);
-    console.error(`[server] could not send the order notification for ${orderId}:`, err);
+    release();
+    console.error(`[server] could not load paid order ${orderId} to send its emails:`, err);
+    return;
+  }
+
+  if (sendShop) {
+    try {
+      // Always in the server log too — the one place an order is recorded even
+      // if email isn't configured or delivery fails.
+      console.log(`[server] PAID ORDER ${orderId}\n${shopEmail.text}`);
+      if (!mailer) {
+        console.warn("[server] order notification email skipped: CONTACT_EMAIL_USER / CONTACT_EMAIL_PASS are not set.");
+      } else {
+        await mailer.sendMail({
+          from: `"YZ Labs orders" <${CONTACT_EMAIL_USER}>`,
+          to: CONTACT_TO_EMAIL,
+          replyTo: shopEmail.replyTo,
+          subject: shopEmail.subject,
+          text: shopEmail.text,
+        });
+      }
+    } catch (err) {
+      notifiedOrders.delete(orderId);
+      console.error(`[server] could not send the order notification for ${orderId}:`, err);
+    }
+  }
+
+  if (sendCustomer) {
+    try {
+      const confirmation = buildCustomerEmail(order, paymentId, { email: CONTACT_TO_EMAIL, phone: SHOP_PHONE });
+      if (!confirmation) {
+        console.warn(`[server] no customer email on ${orderId}; confirmation not sent.`);
+      } else if (!mailer) {
+        console.warn("[server] customer confirmation skipped: CONTACT_EMAIL_USER / CONTACT_EMAIL_PASS are not set.");
+      } else {
+        await mailer.sendMail({
+          from: `"YZ Labs" <${CONTACT_EMAIL_USER}>`,
+          to: confirmation.to,
+          replyTo: confirmation.replyTo,
+          subject: confirmation.subject,
+          text: confirmation.text,
+        });
+      }
+    } catch (err) {
+      confirmedOrders.delete(orderId);
+      console.error(`[server] could not send the customer confirmation for ${orderId}:`, err);
+    }
   }
 }
 

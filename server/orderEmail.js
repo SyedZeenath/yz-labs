@@ -76,3 +76,68 @@ export function buildOrderEmail(order, paymentId, flags = {}) {
     replyTo: n.ship_email || undefined,
   };
 }
+
+// Header/body text that came from a form: collapse anything that could break
+// a line (or a header) into a single space.
+const oneLine = (s) => String(s || "").replace(/[\r\n\t]+/g, " ").trim();
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// The customer's own confirmation, built from the same Razorpay order record
+// as the owner's email. `shop` is { email, phone } — the contact details to
+// put in the footer and to use as reply-to. Returns null when the order has no
+// usable customer email (orders placed before the delivery step existed).
+// Razorpay sends its own payment receipt separately; this is the part it
+// can't: what was bought, where it's going, and what happens next.
+export function buildCustomerEmail(order, paymentId, shop = {}) {
+  const n = order.notes && typeof order.notes === "object" && !Array.isArray(order.notes) ? order.notes : {};
+  const to = oneLine(n.ship_email);
+  if (!EMAIL_RE.test(to)) return null;
+
+  const amount = Number(order.amount) / 100;
+  const discountCode = n.discount_code || null;
+  const discount = Number(n.discount_paise) / 100 || 0;
+  const subtotal = Number(n.subtotal_paise) / 100 || amount + discount;
+  const name = oneLine(n.ship_name);
+  const items = describeItems(n.items);
+
+  const text = [
+    name ? `Hi ${name},` : "Hi,",
+    "",
+    "Thank you for your order - your payment went through and we've got it.",
+    "",
+    `Order ID:   ${order.id}`,
+    ...(paymentId ? [`Payment ID: ${paymentId}`] : []),
+    "",
+    "WHAT YOU ORDERED",
+    ...(items.length ? items : ["  (see your Razorpay payment receipt for the amount)"]),
+    "",
+    ...(discountCode
+      ? [`  Subtotal:            Rs ${inr(subtotal)}`, `  Discount (${discountCode}): -Rs ${inr(discount)}`, `  Total paid:          Rs ${inr(amount)}`]
+      : [`  Total paid: Rs ${inr(amount)}`]),
+    "  Shipping is included in the price.",
+    "",
+    "DELIVERING TO",
+    ...[name, oneLine(n.ship_address), `${[n.ship_city, n.ship_state].map(oneLine).filter(Boolean).join(", ")}${n.ship_pincode ? ` - ${oneLine(n.ship_pincode)}` : ""}`, "India"]
+      .filter((line) => line && line.trim())
+      .map((line) => `  ${line}`),
+    "",
+    "WHAT HAPPENS NEXT",
+    "  - In-stock items are packed and dispatched within 3-5 business days; made-to-order pieces take 7-10.",
+    "  - Once dispatched, delivery usually takes 3-7 business days. We'll email you tracking details when your order ships.",
+    "  - You may also get a separate payment receipt from Razorpay.",
+    "",
+    "Spotted a mistake in the address, or have a question? Reply to this email" + (shop.phone ? ` or call ${shop.phone}` : "") + " and quote your order ID - the sooner the better, before it ships.",
+    "",
+    "YZ Labs",
+    "Small-batch 3D-printed objects, Bengaluru",
+    ...(shop.email ? [shop.email] : []),
+  ].join("\n");
+
+  return {
+    to,
+    subject: `Your YZ Labs order is confirmed (Rs ${inr(amount)})`,
+    text,
+    replyTo: shop.email || undefined,
+  };
+}

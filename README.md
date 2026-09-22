@@ -36,6 +36,8 @@ Products live in [`src/data/products.js`](src/data/products.js) — one object p
 Checkout collects the customer's name, email, mobile and India delivery address before payment. Each paid order then reaches you in three places:
 
 - **Email**: one "New order" email per paid order (customer, items, ship-to address) to `CONTACT_TO_EMAIL`. Needs the `CONTACT_EMAIL_*` variables set.
+
+The customer gets their own confirmation too, sent to the email they entered at checkout: order ID, items, discount breakdown, delivery address, what happens next, and your contact details (replies go to `CONTACT_TO_EMAIL`; the phone number shown is `SHOP_PHONE`, default `+91 8660 828944`). The two emails are independent — if one fails to send, the other still goes, and the retry (from the webhook or a second verify) only resends the missing one. It complements Razorpay's own payment receipt rather than replacing it; in the Razorpay Dashboard → Settings → Notifications, leave the customer email/SMS receipts on. Orders with no customer email (placed before the delivery step existed) just skip it.
 - **Razorpay Dashboard**: the same details are stored in the order's notes (`ship_name`, `ship_address`, …).
 - **Server logs**: every paid order is printed as `PAID ORDER …`.
 
