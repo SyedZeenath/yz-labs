@@ -242,6 +242,9 @@ function makeLimiter(windowMs, max) {
 // asks for it every time it opens or changes.
 const codeCheckLimited = makeLimiter(10 * 60 * 1000, 40);
 const offersLimited = makeLimiter(10 * 60 * 1000, 120);
+// One signup per keystroke-mistake retry is normal; the cap only needs to
+// stop someone scripting the endpoint to spam the shop inbox.
+const waitlistLimited = makeLimiter(60 * 60 * 1000, 8);
 const clientIp = (req) => req.ip || req.socket?.remoteAddress || "unknown";
 
 // Is this code good for this cart? Deliberately knows nothing about WHO is
@@ -541,6 +544,40 @@ app.post("/api/contact", async (req, res) => {
   } catch (err) {
     console.error("[server] contact form send failed:", err);
     res.status(500).json({ error: "Could not send your message. Please try again or email us directly." });
+  }
+});
+
+// "Get notified" waitlist signup. There's no database and Render's free disk
+// doesn't survive restarts, so — same as the contact form — the signup's
+// durable record is an email to the shop; nothing is stored on the server.
+app.post("/api/waitlist", async (req, res) => {
+  if (!mailer) {
+    return res.status(500).json({ error: "The waitlist isn't configured on the server yet." });
+  }
+
+  const ip = req.ip || req.socket?.remoteAddress || "unknown";
+  if (waitlistLimited(ip)) {
+    return res.status(429).json({ error: "Too many signups from here recently. Please try again later." });
+  }
+
+  const email = typeof req.body?.email === "string" ? req.body.email.trim() : "";
+  if (!email) return res.status(400).json({ error: "Enter an email address." });
+  if (!EMAIL_RE.test(email) || email.length > 200) {
+    return res.status(400).json({ error: "That email address doesn't look valid." });
+  }
+
+  try {
+    await mailer.sendMail({
+      from: `"YZ Labs website" <${CONTACT_EMAIL_USER}>`,
+      to: CONTACT_TO_EMAIL,
+      replyTo: email,
+      subject: `Waitlist signup: ${email}`,
+      text: `${email} joined the "next batch" waitlist.`,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[server] waitlist signup send failed:", err);
+    res.status(500).json({ error: "Could not join the waitlist. Please try again or email us directly." });
   }
 });
 

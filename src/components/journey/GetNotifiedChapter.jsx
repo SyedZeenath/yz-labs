@@ -25,6 +25,8 @@ const HEADING_TOP_FRACTION = 0.32;
 export default function GetNotifiedChapter({ progress, active, narrow }) {
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [status, setStatus] = useState("idle"); // idle | sending | error
+  const [error, setError] = useState("");
 
   const viewport = useViewportSize();
   const canvasRef = useRef(null);
@@ -59,10 +61,24 @@ export default function GetNotifiedChapter({ progress, active, narrow }) {
 
   const contentP = clamp01((progress - 0.32) / 0.28);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!email.trim()) return;
-    setSubmitted(true);
+    if (!email.trim() || status === "sending") return;
+    setStatus("sending");
+    setError("");
+    try {
+      const res = await fetch("/api/waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Something went wrong. Please try again.");
+      setSubmitted(true);
+    } catch (err) {
+      setStatus("error");
+      setError(err.message || "Something went wrong. Please try again.");
+    }
   };
 
   return (
@@ -100,35 +116,48 @@ export default function GetNotifiedChapter({ progress, active, narrow }) {
             ✓ You're on the list. We'll email you when the next batch opens.
           </p>
         ) : (
-          <form
-            onSubmit={handleSubmit}
-            style={{ display: "flex", gap: 0, maxWidth: 480, margin: "0 auto", flexWrap: "wrap", justifyContent: "center" }}
-          >
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@email.com"
-              className="mono"
-              style={{
-                flex: "1 1 260px",
-                background: "transparent",
-                border: "1px solid var(--border-strong)",
-                borderRight: "none",
-                padding: "20px 22px",
-                color: "var(--fg)",
-                fontSize: 16,
-              }}
-            />
-            <button
-              type="submit"
-              className="btn btn-primary"
-              style={{ borderRadius: 0, fontSize: 15, padding: "20px 32px" }}
+          <>
+            <form
+              onSubmit={handleSubmit}
+              style={{ display: "flex", gap: 0, maxWidth: 480, margin: "0 auto", flexWrap: "wrap", justifyContent: "center" }}
             >
-              Join waitlist
-            </button>
-          </form>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (status === "error") setStatus("idle");
+                }}
+                placeholder="you@email.com"
+                aria-invalid={status === "error" ? true : undefined}
+                disabled={status === "sending"}
+                className="mono"
+                style={{
+                  flex: "1 1 260px",
+                  background: "transparent",
+                  border: `1px solid ${status === "error" ? "#FF8A7A" : "var(--border-strong)"}`,
+                  borderRight: "none",
+                  padding: "20px 22px",
+                  color: "var(--fg)",
+                  fontSize: 16,
+                }}
+              />
+              <button
+                type="submit"
+                disabled={!email.trim() || status === "sending"}
+                className="btn btn-primary"
+                style={{ borderRadius: 0, fontSize: 15, padding: "20px 32px", opacity: !email.trim() || status === "sending" ? 0.6 : 1 }}
+              >
+                {status === "sending" ? "Joining…" : "Join waitlist"}
+              </button>
+            </form>
+            {status === "error" && (
+              <p role="alert" className="mono" style={{ fontSize: 13, color: "#FF8A7A", marginTop: 14 }}>
+                {error}
+              </p>
+            )}
+          </>
         )}
       </div>
     </div>
