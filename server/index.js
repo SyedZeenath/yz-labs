@@ -23,7 +23,7 @@ import * as ordersRepo from "./db/ordersRepo.js";
 import * as adminUsersRepo from "./db/adminUsersRepo.js";
 import { requireAdmin, signAdminCookie, signResetToken, verifyResetToken, ADMIN_COOKIE, timingSafeEqualStrings } from "./adminAuth.js";
 import { buildAdminResetEmail } from "./adminResetEmail.js";
-import { requireCustomer, signCustomerSession, signMagicLinkToken, verifyMagicLinkToken, CUSTOMER_COOKIE } from "./customerAuth.js";
+import { requireCustomer, signCustomerSession, signMagicLinkToken, verifyMagicLinkToken, CUSTOMER_COOKIE, SESSION_MS } from "./customerAuth.js";
 import { buildMagicLinkEmail } from "./customerAuthEmail.js";
 import { SITE_URL } from "./emailTemplate.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
@@ -1174,13 +1174,19 @@ app.post("/api/admin/orders/:id/notify-shipped", requireAdmin(ADMIN_TOKEN), asyn
 // guest, no login required to buy) — this is purely an optional "see my
 // past orders and tracking" area.
 
+// Returns the expiry (ms epoch) it just set, so a caller that also needs to
+// tell the customer when this expires (GET /api/customer/session) always
+// reports the exact value just issued, never a separately-computed guess at
+// it.
 function setCustomerCookie(res, email) {
+  const expiresAt = Date.now() + SESSION_MS;
   res.cookie(CUSTOMER_COOKIE, signCustomerSession(SESSION_SECRET, email), {
     httpOnly: true,
     sameSite: "lax",
     secure: Boolean(process.env.RENDER),
-    maxAge: 30 * 24 * 60 * 60 * 1000,
+    maxAge: SESSION_MS,
   });
+  return expiresAt;
 }
 
 // Always the same response regardless of whether this email has ever
@@ -1209,8 +1215,8 @@ app.post("/api/customer/verify", (req, res) => {
   const token = typeof req.body?.token === "string" ? req.body.token : "";
   const email = token ? verifyMagicLinkToken(token, SESSION_SECRET) : null;
   if (!email) return res.status(400).json({ error: "This sign-in link is invalid or has expired. Request a new one." });
-  setCustomerCookie(res, email);
-  res.json({ ok: true, email });
+  const expiresAt = setCustomerCookie(res, email);
+  res.json({ ok: true, email, expiresAt });
 });
 
 app.post("/api/customer/logout", (_req, res) => {
@@ -1220,12 +1226,18 @@ app.post("/api/customer/logout", (_req, res) => {
 
 // The cookie is httpOnly (unreadable from JS), so this is the client's only
 // way to know both whether it's signed in AND which email — shown in the UI
-// as "Signed in as ...".
+// as "Signed in as ...". Also renews the cookie for another full SESSION_MS
+// (a sliding session — see customerAuth.js's SESSION_MS) and reports the
+// resulting expiry, so the UI can tell the customer how long they're good
+// for; every visit while signed in pushes that date out again, so an
+// actually-active customer is never asked to sign in again.
 app.get("/api/customer/session", requireCustomer(SESSION_SECRET), (req, res) => {
-  res.json({ ok: true, email: req.customerEmail });
+  const expiresAt = setCustomerCookie(res, req.customerEmail);
+  res.json({ ok: true, email: req.customerEmail, expiresAt });
 });
 
 app.get("/api/customer/orders", requireCustomer(SESSION_SECRET), async (req, res) => {
+  setCustomerCookie(res, req.customerEmail);
   try {
     let products = [];
     try {
@@ -1387,8 +1399,11 @@ app.get("/api/products", async (_req, res) => {
 // restart. Response keys are the folder names themselves; the frontend
 // matches each product's `imageFolder` (data/products.js) against them —
 // folder names don't have to match a product's own id. A file literally
-// named `hero.*` is the catalog/hero shot; every other image in the folder
-// is the detail-popup gallery, sorted by filename.
+// named `hero.*` is still the one used for the catalog/orbit tile
+// (`heroImage`), but the detail-popup gallery (`images`) is now every image
+// in the folder, hero included — shown first, then the rest sorted by
+// filename — so the popup shows the same shot used for the tile itself
+// plus every other angle, not everything EXCEPT the tile's own photo.
 app.get("/api/product-images", (_req, res) => {
   try {
     const result = {};
@@ -1403,7 +1418,8 @@ app.get("/api/product-images", (_req, res) => {
         .map((f) => f.name);
 
       const heroFile = files.find((f) => /^hero\./i.test(f));
-      const gallery = files.filter((f) => f !== heroFile).sort();
+      const rest = files.filter((f) => f !== heroFile).sort();
+      const gallery = heroFile ? [heroFile, ...rest] : rest;
 
       result[id] = {
         heroImage: heroFile ? `/products/${id}/${heroFile}` : gallery[0] ? `/products/${id}/${gallery[0]}` : null,

@@ -3,8 +3,13 @@ import { signToken, verifyToken, readCookie } from "./authTokens.js";
 export const CUSTOMER_COOKIE = "yz_customer";
 // Customers sign in far less often than admins do their day-to-day work, so
 // this stays valid much longer than the admin session (12h) — 30 days,
-// closer to "stay signed in" than a work session.
-const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
+// closer to "stay signed in" than a work session. Exported so
+// server/index.js's authenticated customer routes can renew the cookie by
+// this same amount on every request (a sliding session — an active
+// customer never has to sign in again, only one gone a full 30 days
+// straight does) and tell the customer the resulting expiry, without a
+// second copy of this number drifting out of sync with it.
+export const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const MAGIC_LINK_MS = 30 * 60 * 1000; // 30 minutes
 
 // Its own secret (SESSION_SECRET), never ADMIN_TOKEN — a leaked/forged

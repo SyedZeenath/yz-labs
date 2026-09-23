@@ -12,7 +12,6 @@ import { useCart } from "../store/cart.jsx";
 // transition instead of Motion's mount lifecycle.
 export default function ProductModal({ product, onClose }) {
   const { addItem } = useCart();
-  const [added, setAdded] = useState(false);
   const [displayProduct, setDisplayProduct] = useState(product);
   const [selectedColorId, setSelectedColorId] = useState(product?.colors?.[0]?.id ?? null);
   const isOpen = Boolean(product);
@@ -42,7 +41,6 @@ export default function ProductModal({ product, onClose }) {
 
   useEffect(() => {
     if (!isOpen) return;
-    setAdded(false);
     const onKey = (e) => {
       if (e.key === "Escape") onClose();
     };
@@ -62,8 +60,7 @@ export default function ProductModal({ product, onClose }) {
 
   const handleAdd = () => {
     addItem(p.id, selectedColor.id);
-    setAdded(true);
-    setTimeout(() => setAdded(false), 1200);
+    onClose();
   };
 
   // Portaled to document.body — a position:fixed element nested inside any
@@ -146,7 +143,11 @@ export default function ProductModal({ product, onClose }) {
           </div>
         </div>
 
-        <div style={{ padding: "44px 40px 40px", display: "flex", flexDirection: "column" }}>
+        {/* padding-top clears the absolutely-positioned Close button (top:16,
+            right:16, 36px tall — occupies y 16-52 of the dialog regardless of
+            which grid column it visually sits over), which the "In stock"
+            status row used to sit directly under and overlap. */}
+        <div style={{ padding: "64px 40px 40px", display: "flex", flexDirection: "column" }}>
           <div
             className="mono"
             style={{
@@ -234,7 +235,7 @@ export default function ProductModal({ product, onClose }) {
                   ₹{effectivePrice}
                 </span>
                 <button onClick={handleAdd} className="btn btn-primary">
-                  {added ? "✓ Added to cart" : "+ Add to cart"}
+                  + Add to cart
                 </button>
               </>
             ) : (

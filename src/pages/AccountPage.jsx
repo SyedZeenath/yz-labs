@@ -9,6 +9,15 @@ function fmtDate(dateStr) {
   return new Date(dateStr).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
+// `expiresAt` is a ms-epoch timestamp from the server (see GET
+// /api/customer/session) — it slides forward by another 30 days on every
+// visit while signed in, so this always reflects the real, current expiry,
+// not a stale "30 days from your very first sign-in" guess.
+function fmtExpiry(expiresAt) {
+  if (!expiresAt) return "";
+  return new Date(expiresAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
 function rupees(paise) {
   return (Number(paise) / 100).toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
@@ -196,6 +205,7 @@ export default function AccountPage() {
 
   const [session, setSession] = useState(signinToken ? "verifying" : "checking"); // checking | verifying | in | out
   const [email, setEmail] = useState("");
+  const [expiresAt, setExpiresAt] = useState(null);
   const [verifyError, setVerifyError] = useState("");
 
   useEffect(() => {
@@ -210,6 +220,7 @@ export default function AccountPage() {
           setSearchParams({}, { replace: true });
           if (ok) {
             setEmail(body.email);
+            setExpiresAt(body.expiresAt);
             setSession("in");
           } else {
             setVerifyError(body.error || "Couldn't sign you in.");
@@ -223,11 +234,16 @@ export default function AccountPage() {
         });
       return;
     }
+    // Every session check also silently renews the session for another 30
+    // days (see server/index.js's setCustomerCookie) — visiting while
+    // signed in is what keeps `expiresAt` sliding forward, so it's never
+    // stale here even on a page loaded straight from cache/history.
     fetch("/api/customer/session")
       .then((res) => res.json().then((body) => ({ ok: res.ok, body })))
       .then(({ ok, body }) => {
         if (ok) {
           setEmail(body.email);
+          setExpiresAt(body.expiresAt);
           setSession("in");
         } else {
           setSession("out");
@@ -245,6 +261,7 @@ export default function AccountPage() {
     fetch("/api/customer/logout", { method: "POST" }).finally(() => {
       setSession("out");
       setEmail("");
+      setExpiresAt(null);
     });
   };
 
@@ -279,9 +296,16 @@ export default function AccountPage() {
             {session === "in" && (
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 32 }}>
-                  <p className="mono" style={{ fontSize: 13, color: "var(--fg-dim)" }}>
-                    Signed in as <span style={{ color: "var(--fg)" }}>{email}</span>
-                  </p>
+                  <div>
+                    <p className="mono" style={{ fontSize: 13, color: "var(--fg-dim)" }}>
+                      Signed in as <span style={{ color: "var(--fg)" }}>{email}</span>
+                    </p>
+                    {expiresAt && (
+                      <p className="mono" style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+                        You'll stay signed in until {fmtExpiry(expiresAt)} — just visiting keeps it going.
+                      </p>
+                    )}
+                  </div>
                   <button onClick={logout} className="btn btn-ghost" style={{ padding: "8px 16px", fontSize: 12 }}>
                     Sign out
                   </button>
