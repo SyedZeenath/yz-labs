@@ -33,7 +33,11 @@ Products live in the database now, edited at **`/admin`** (see below) — add, e
 
 ## Admin panel
 
-`/admin` — products (add/edit/archive), contacts (waitlist signups and contact-form messages), and orders (paid orders mirrored from Razorpay, with a fulfillment status and tracking note you can set). Logs in with `ADMIN_TOKEN` (see below); without it, `/admin` just refuses every login attempt.
+`/admin` — products (add/edit/archive/delete), contacts (waitlist signups and contact-form messages), and orders (paid orders mirrored from Razorpay, with a fulfillment status and tracking note you can set).
+
+**Logging in.** There's no shared admin password — each person on the admin list logs in with their own email and a password they set themselves. Who's allowed is a fixed list of emails in [`server/db/schema.sql`](server/db/schema.sql) (edit the `INSERT INTO admin_users` there to add/remove people — there's no UI for this, on purpose, since it controls who can do everything else). The first time one of those emails logs in, the form asks for a password to set plus the `ADMIN_TOKEN` from your `.env` — proving they're actually one of the people you gave that token to, not just someone who guessed or found the email. Every login after that is just their email and password; `ADMIN_TOKEN` is never needed again for them. Without `ADMIN_TOKEN` set at all, `/admin` refuses every login and setup attempt outright.
+
+There's no password-reset flow yet — if someone forgets theirs, clear their `password_hash` back to `NULL` in the `admin_users` table and they'll get the first-time setup screen again.
 
 The products list is cached in memory for fast checkout (`server/db/productsCache.js`) — any edit through `/admin` invalidates that cache immediately, so a price change or a new product is live on the site right away, not after a delay.
 

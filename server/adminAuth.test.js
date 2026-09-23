@@ -4,29 +4,34 @@ import assert from "node:assert/strict";
 import { signAdminCookie, verifyAdminCookie, requireAdmin, ADMIN_COOKIE } from "./adminAuth.js";
 
 const SECRET = "test-admin-secret";
+const EMAIL = "owner@example.com";
 
-test("a freshly signed cookie verifies", () => {
-  const cookie = signAdminCookie(SECRET);
-  assert.equal(verifyAdminCookie(cookie, SECRET), true);
+test("a freshly signed cookie verifies and returns the email it was signed for", () => {
+  const cookie = signAdminCookie(SECRET, EMAIL);
+  assert.equal(verifyAdminCookie(cookie, SECRET), EMAIL);
 });
 
 test("an expired cookie is rejected", () => {
   let t = 0;
-  const cookie = signAdminCookie(SECRET, { now: () => t, sessionMs: 1000 });
+  const cookie = signAdminCookie(SECRET, EMAIL, { now: () => t, sessionMs: 1000 });
   t = 1001;
-  assert.equal(verifyAdminCookie(cookie, SECRET, { now: () => t }), false);
+  assert.equal(verifyAdminCookie(cookie, SECRET, { now: () => t }), null);
 });
 
-test("a tampered cookie (wrong signature, or a different secret) is rejected", () => {
-  const cookie = signAdminCookie(SECRET);
-  const [expiresAt] = cookie.split(".");
-  assert.equal(verifyAdminCookie(`${expiresAt}.deadbeef`, SECRET), false);
-  assert.equal(verifyAdminCookie(cookie, "a-different-secret"), false);
+test("a tampered cookie (wrong signature, a different secret, or a swapped-in different email) is rejected", () => {
+  const cookie = signAdminCookie(SECRET, EMAIL);
+  const [emailPart, expiresAt] = cookie.split(".");
+  assert.equal(verifyAdminCookie(`${emailPart}.${expiresAt}.deadbeef`, SECRET), null);
+  assert.equal(verifyAdminCookie(cookie, "a-different-secret"), null);
+  // Swapping the email segment without a matching signature must not let
+  // someone else's cookie be "read as" a different admin.
+  const otherEmailPart = Buffer.from("attacker@example.com").toString("base64url");
+  assert.equal(verifyAdminCookie(`${otherEmailPart}.${expiresAt}.${cookie.split(".")[2]}`, SECRET), null);
 });
 
 test("garbage or missing cookie values are rejected, not thrown", () => {
   for (const bad of [null, undefined, "", "not-a-real-cookie", "123", "abc.def"]) {
-    assert.equal(verifyAdminCookie(bad, SECRET), false, JSON.stringify(bad));
+    assert.equal(verifyAdminCookie(bad, SECRET), null, JSON.stringify(bad));
   }
 });
 
@@ -58,21 +63,23 @@ test("requireAdmin: 404s (endpoint doesn't exist) when no ADMIN_TOKEN is configu
   assert.equal(result().statusCode, 404);
 });
 
-test("requireAdmin: a valid Bearer token passes through (existing curl usage keeps working)", () => {
+test("requireAdmin: a valid Bearer token passes through (existing curl usage keeps working), with no email attached", () => {
   const mw = requireAdmin(SECRET);
   const { req, res } = fakeReqRes({ authorization: `Bearer ${SECRET}` });
   let nextCalled = false;
   mw(req, res, () => (nextCalled = true));
   assert.equal(nextCalled, true);
+  assert.equal(req.adminEmail, null);
 });
 
-test("requireAdmin: a valid signed cookie passes through", () => {
+test("requireAdmin: a valid signed cookie passes through and attaches the admin's email", () => {
   const mw = requireAdmin(SECRET);
-  const cookie = signAdminCookie(SECRET);
+  const cookie = signAdminCookie(SECRET, EMAIL);
   const { req, res } = fakeReqRes({ cookie: `${ADMIN_COOKIE}=${cookie}; other=1` });
   let nextCalled = false;
   mw(req, res, () => (nextCalled = true));
   assert.equal(nextCalled, true);
+  assert.equal(req.adminEmail, EMAIL);
 });
 
 test("requireAdmin: wrong Bearer, wrong/expired cookie, or nothing at all is 401", () => {

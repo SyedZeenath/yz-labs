@@ -75,3 +75,23 @@ CREATE TABLE IF NOT EXISTS orders (
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS orders_created_at_idx ON orders (created_at DESC);
+
+-- Named admin accounts (replaces logging in with the bare ADMIN_TOKEN).
+-- password_hash is NULL until that person sets their own password —
+-- proving they're allowed to claim the account still requires ADMIN_TOKEN,
+-- once, the first time (see POST /api/admin/setup-password); every login
+-- after that is just email + password. Emails are seeded below; edit the
+-- INSERTs (or add more) for your own admin team before/after applying this
+-- file — it's the one place this list lives, there's no admin UI for it.
+CREATE TABLE IF NOT EXISTS admin_users (
+  email           TEXT PRIMARY KEY,
+  password_hash   TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  password_set_at TIMESTAMPTZ,
+  last_login_at   TIMESTAMPTZ
+);
+INSERT INTO admin_users (email) VALUES
+  ('yzlabs.store@gmail.com'),
+  ('s.zeenath.ara@gmail.com'),
+  ('shahidfardeen2204@gmail.com')
+ON CONFLICT (email) DO NOTHING;

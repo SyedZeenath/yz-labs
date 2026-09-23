@@ -17,7 +17,9 @@ import { createProductsCache } from "./db/productsCache.js";
 import * as productsRepo from "./db/productsRepo.js";
 import * as contactsRepo from "./db/contactsRepo.js";
 import * as ordersRepo from "./db/ordersRepo.js";
-import { requireAdmin, signAdminCookie, ADMIN_COOKIE } from "./adminAuth.js";
+import * as adminUsersRepo from "./db/adminUsersRepo.js";
+import { requireAdmin, signAdminCookie, ADMIN_COOKIE, timingSafeEqualStrings } from "./adminAuth.js";
+import { hashPassword, verifyPassword } from "./passwords.js";
 import { COLORWAYS } from "../src/data/colorways.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -599,28 +601,93 @@ app.get("/api/admin/discounts", requireAdmin(ADMIN_TOKEN), async (req, res) => {
 
 // ---------------------------------------------------------------- admin auth
 //
-// A stateless, single-shared-secret login: the same ADMIN_TOKEN that already
-// gated /api/admin/discounts now also unlocks a real browser session (a
-// signed, httpOnly cookie — see adminAuth.js) instead of only working from
-// curl. `requireAdmin` still accepts the original Bearer header too, so
-// nothing that already used it breaks.
-app.post("/api/admin/login", (req, res) => {
-  if (!ADMIN_TOKEN) return res.status(404).json({ error: "Not found." });
-  if (adminLoginLimited(clientIp(req))) {
-    return res.status(429).json({ error: "Too many attempts. Please try again in a few minutes." });
-  }
-  const given = Buffer.from(String(req.body?.token || ""));
-  const want = Buffer.from(ADMIN_TOKEN);
-  if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) {
-    return res.status(401).json({ error: "That token isn't right." });
-  }
-  res.cookie(ADMIN_COOKIE, signAdminCookie(ADMIN_TOKEN), {
+// Named admin accounts (server/db/adminUsersRepo.js), not one shared secret
+// typed into a login box. ADMIN_TOKEN still exists, but its only job now is
+// proving someone is allowed to CLAIM one of the pre-approved emails and set
+// its first password — a one-time bootstrap, not something typed in on every
+// login. `requireAdmin` still accepts the original Bearer header too, so
+// nothing that already used it (curl against /api/admin/discounts) breaks.
+const MIN_PASSWORD_LENGTH = 8;
+
+function setAdminCookie(res, email) {
+  res.cookie(ADMIN_COOKIE, signAdminCookie(ADMIN_TOKEN, email), {
     httpOnly: true,
     sameSite: "lax",
     secure: Boolean(process.env.RENDER),
     maxAge: 12 * 60 * 60 * 1000,
   });
-  res.json({ ok: true });
+}
+
+app.post("/api/admin/login", async (req, res) => {
+  if (!ADMIN_TOKEN) return res.status(404).json({ error: "Not found." });
+  if (adminLoginLimited(clientIp(req))) {
+    return res.status(429).json({ error: "Too many attempts. Please try again in a few minutes." });
+  }
+  const email = typeof req.body?.email === "string" ? req.body.email.trim() : "";
+  const password = typeof req.body?.password === "string" ? req.body.password : "";
+  if (!email || !password) return res.status(400).json({ error: "Enter your email and password." });
+
+  try {
+    const user = await adminUsersRepo.getByEmail(email);
+    // Same message either way — this endpoint must not reveal whether a
+    // given email is an admin at all.
+    if (!user) return res.status(401).json({ error: "Invalid email or password." });
+    if (user.needsSetup) {
+      return res.status(409).json({ error: "This account hasn't been set up yet.", needsSetup: true });
+    }
+    if (!(await verifyPassword(password, user.passwordHash))) {
+      return res.status(401).json({ error: "Invalid email or password." });
+    }
+    setAdminCookie(res, user.email);
+    adminUsersRepo.touchLogin(user.email).catch((err) => console.error("[server] couldn't record admin login time:", err?.message || err));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[server] admin login failed:", err);
+    res.status(500).json({ error: "Could not log in right now. Please try again." });
+  }
+});
+
+// The one-time bootstrap: proves you're allowed to claim a pre-approved
+// admin email by also providing ADMIN_TOKEN, then sets that account's first
+// password. Can never touch an account that already has a password — that
+// would let anyone who later learns ADMIN_TOKEN hijack an existing admin,
+// rather than only ever claiming an account nobody has set up yet.
+app.post("/api/admin/setup-password", async (req, res) => {
+  if (!ADMIN_TOKEN) return res.status(404).json({ error: "Not found." });
+  if (adminLoginLimited(clientIp(req))) {
+    return res.status(429).json({ error: "Too many attempts. Please try again in a few minutes." });
+  }
+  const email = typeof req.body?.email === "string" ? req.body.email.trim() : "";
+  const password = typeof req.body?.password === "string" ? req.body.password : "";
+  const token = typeof req.body?.token === "string" ? req.body.token : "";
+  if (!email || !password || !token) return res.status(400).json({ error: "Fill in every field." });
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    return res.status(400).json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.` });
+  }
+  if (!timingSafeEqualStrings(token, ADMIN_TOKEN)) {
+    return res.status(401).json({ error: "That admin key isn't right." });
+  }
+
+  try {
+    const user = await adminUsersRepo.getByEmail(email);
+    if (!user) return res.status(404).json({ error: "That email isn't on the admin list." });
+    if (!user.needsSetup) {
+      return res.status(409).json({ error: "This account is already set up — log in normally instead." });
+    }
+    const passwordHash = await hashPassword(password);
+    const updated = await adminUsersRepo.setInitialPassword(email, passwordHash);
+    if (!updated) {
+      // Someone else claimed it a moment ago (setInitialPassword only
+      // succeeds while password_hash is still NULL).
+      return res.status(409).json({ error: "This account is already set up — log in normally instead." });
+    }
+    setAdminCookie(res, updated.email);
+    adminUsersRepo.touchLogin(updated.email).catch((err) => console.error("[server] couldn't record admin login time:", err?.message || err));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[server] admin setup-password failed:", err);
+    res.status(500).json({ error: "Could not set up that account right now. Please try again." });
+  }
 });
 
 app.post("/api/admin/logout", (_req, res) => {
