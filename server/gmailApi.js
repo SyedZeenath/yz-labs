@@ -22,14 +22,37 @@ const SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
 // racing a request against the exact expiry moment.
 const REFRESH_MARGIN_MS = 60_000;
 
-// RFC 2822-ish plain-text message, base64url-encoded the way the Gmail API
-// requires (`raw`). Headers with non-ASCII characters would need MIME
-// encoding, but every subject/name in this app is plain ASCII.
-function buildRawMessage({ from, to, replyTo, subject, text }) {
-  const headers = [`From: ${from}`, `To: ${to}`, replyTo ? `Reply-To: ${replyTo}` : null, `Subject: ${subject}`, "MIME-Version: 1.0", "Content-Type: text/plain; charset=utf-8"]
-    .filter(Boolean)
-    .join("\r\n");
-  const message = `${headers}\r\n\r\n${text}`;
+// RFC 2822-ish message, base64url-encoded the way the Gmail API requires
+// (`raw`). Headers with non-ASCII characters would need MIME encoding, but
+// every subject/name in this app is plain ASCII. Plain-text-only when no
+// `html` is given (waitlist/contact mail); `multipart/alternative` with
+// both parts when it is (order emails) — every mail client picks whichever
+// part it can render, so this never drops the plain-text fallback.
+function buildRawMessage({ from, to, replyTo, subject, text, html }) {
+  const headers = [`From: ${from}`, `To: ${to}`, replyTo ? `Reply-To: ${replyTo}` : null, `Subject: ${subject}`, "MIME-Version: 1.0"];
+
+  if (!html) {
+    const message = `${[...headers, "Content-Type: text/plain; charset=utf-8"].join("\r\n")}\r\n\r\n${text}`;
+    return Buffer.from(message, "utf8").toString("base64url");
+  }
+
+  const boundary = `yzlabs_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+  const message = [
+    ...headers,
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
+    "Content-Type: text/plain; charset=utf-8",
+    "",
+    text,
+    "",
+    `--${boundary}`,
+    "Content-Type: text/html; charset=utf-8",
+    "",
+    html,
+    "",
+    `--${boundary}--`,
+  ].join("\r\n");
   return Buffer.from(message, "utf8").toString("base64url");
 }
 
@@ -53,12 +76,12 @@ export function createGmailMailer({ clientId, clientSecret, refreshToken, now = 
     return accessToken;
   }
 
-  async function sendMail({ from, to, replyTo, subject, text }) {
+  async function sendMail({ from, to, replyTo, subject, text, html }) {
     const token = await getAccessToken();
     const res = await fetch(SEND_URL, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ raw: buildRawMessage({ from, to, replyTo, subject, text }) }),
+      body: JSON.stringify({ raw: buildRawMessage({ from, to, replyTo, subject, text, html }) }),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));

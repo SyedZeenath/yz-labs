@@ -250,6 +250,7 @@ async function sendOrderEmails(order, paymentId, duplicateDiscount) {
           replyTo: shopEmail.replyTo,
           subject: shopEmail.subject,
           text: shopEmail.text,
+          html: shopEmail.html,
         });
       }
     } catch (err) {
@@ -272,6 +273,7 @@ async function sendOrderEmails(order, paymentId, duplicateDiscount) {
           replyTo: confirmation.replyTo,
           subject: confirmation.subject,
           text: confirmation.text,
+          html: confirmation.html,
         });
       }
     } catch (err) {

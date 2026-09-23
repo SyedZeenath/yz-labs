@@ -280,9 +280,14 @@ test("the owner's order email shows the discount and flags duplicates", () => {
   assert.match(plain.text, /Discount \(FIRSTBUY10\): -Rs 267\.50/);
   assert.match(plain.text, /Paid:\s+Rs 802\.50/);
   assert.doesNotMatch(plain.text, /CHECK/);
+  assert.match(plain.html, /<!DOCTYPE html>/);
+  assert.match(plain.html, /order_1/);
+  assert.match(plain.html, /Rs 802\.50/);
+  assert.doesNotMatch(plain.html, /Check this order/);
   const dup = buildOrderEmail(order, "pay_1", { duplicateDiscount: true });
   assert.match(dup.subject, /^\[CHECK\]/);
   assert.match(dup.text, /already used FIRSTBUY10/);
+  assert.match(dup.html, /Check this order.*already used <strong>FIRSTBUY10<\/strong>/s);
   // and an ordinary undiscounted order still reads as before
   const none = buildOrderEmail({ id: "o", amount: 100000, notes: { ship_name: "B" } }, "p");
   assert.doesNotMatch(none.text, /TOTALS|Discount/);
@@ -314,6 +319,11 @@ test("the customer's confirmation lists the order, the address and what happens 
   assert.match(mail.text, /call \+91 1/);
   // no internal notes leak to the customer
   assert.doesNotMatch(mail.text, /CHECK|CUSTOMER|Phone:/);
+  assert.match(mail.html, /<!DOCTYPE html>/);
+  assert.match(mail.html, /Asha Rao/);
+  assert.match(mail.html, /12 MG Road/);
+  assert.match(mail.html, /Total paid/);
+  assert.doesNotMatch(mail.html, /CUSTOMER|Phone/);
   // undiscounted: no discount lines
   const plain = buildCustomerEmail({ id: "o", amount: 100000, notes: { ship_email: "b@example.com" } }, "p");
   assert.match(plain.text, /^Hi,/);
@@ -330,6 +340,16 @@ test("no customer confirmation without a usable email, and newlines in fields ca
   assert.match(mail.text, /^Hi Evil Bcc: x@y\.z,/);
   assert.match(mail.text, /1 Road Line 2/);
   assert.equal(mail.to, "a@b.co");
+
+  // a name/address containing HTML-significant characters can't break the
+  // HTML part's markup or inject a tag — everything interpolated is escaped
+  const hostile = buildCustomerEmail(
+    { id: "o", amount: 100, notes: { ship_email: "a@b.co", ship_name: '<script>alert(1)</script> & "Rao"', ship_address: "1 Road" } },
+    "p"
+  );
+  assert.doesNotMatch(hostile.html, /<script>/);
+  assert.match(hostile.html, /&lt;script&gt;/);
+  assert.match(hostile.html, /&amp;/);
 });
 
 // ---------------------------------------------------------------- offers list

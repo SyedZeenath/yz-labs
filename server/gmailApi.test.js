@@ -91,6 +91,33 @@ test("a failed token refresh rejects with a clear message, not a raw fetch error
   await assert.rejects(() => mailer.sendMail({ from: "a@x.com", to: "b@x.com", subject: "s", text: "t" }), /Token has been expired or revoked/);
 });
 
+test("sending with `html` produces a multipart/alternative message carrying both parts", async (t) => {
+  let capturedBody;
+  const { fn } = fakeFetch({ onSend: (opts) => { capturedBody = opts.body; return { ok: true, json: async () => ({ id: "msg1" }) }; } });
+  t.mock.method(global, "fetch", fn);
+
+  const mailer = createGmailMailer({ clientId: "id", clientSecret: "secret", refreshToken: "refresh" });
+  await mailer.sendMail({ from: "shop@x.com", to: "customer@x.com", subject: "Hi", text: "Plain body", html: "<p>Html body</p>" });
+
+  const raw = Buffer.from(JSON.parse(capturedBody).raw, "base64url").toString("utf8");
+  assert.match(raw, /Content-Type: multipart\/alternative; boundary="([^"]+)"/);
+  assert.match(raw, /Content-Type: text\/plain; charset=utf-8[\s\S]*Plain body/);
+  assert.match(raw, /Content-Type: text\/html; charset=utf-8[\s\S]*<p>Html body<\/p>/);
+});
+
+test("without `html`, the message stays plain text only (waitlist/contact mail)", async (t) => {
+  let capturedBody;
+  const { fn } = fakeFetch({ onSend: (opts) => { capturedBody = opts.body; return { ok: true, json: async () => ({}) }; } });
+  t.mock.method(global, "fetch", fn);
+
+  const mailer = createGmailMailer({ clientId: "id", clientSecret: "secret", refreshToken: "refresh" });
+  await mailer.sendMail({ from: "a@x.com", to: "b@x.com", subject: "s", text: "t" });
+
+  const raw = Buffer.from(JSON.parse(capturedBody).raw, "base64url").toString("utf8");
+  assert.match(raw, /Content-Type: text\/plain; charset=utf-8/);
+  assert.doesNotMatch(raw, /multipart\/alternative/);
+});
+
 test("a failed send rejects with a clear message", async (t) => {
   const { fn } = fakeFetch({ onSend: () => ({ ok: false, status: 403, json: async () => ({ error: { message: "Insufficient Permission" } }) }) });
   t.mock.method(global, "fetch", fn);
