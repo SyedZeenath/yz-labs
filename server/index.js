@@ -11,7 +11,7 @@ import { createShiprocketClient } from "./shiprocket.js";
 import helmet from "helmet";
 import { validateShipping } from "../src/lib/address.js";
 import { buildCustomerEmail, buildOrderEmail, encodeItemsNote } from "./orderEmail.js";
-import { buildWaitlistConfirmationEmail } from "./waitlistEmail.js";
+import { buildWaitlistConfirmationEmail, buildWaitlistNotificationEmail } from "./waitlistEmail.js";
 import { priceCart } from "./pricing.js";
 import { DISCOUNTS, lookupDiscount, checkEligibility, listOffers, looksLikeMultipleCodes, ONE_CODE_PER_ORDER, NOT_AVAILABLE } from "./discounts.js";
 import { createLedger, customerKeys } from "./orderLedger.js";
@@ -1138,14 +1138,9 @@ app.post("/api/waitlist", async (req, res) => {
   // token/HTTP handling) never blocks or is blocked by the other, and
   // neither affects whether the signup counted.
   if (mailer) {
+    const notification = buildWaitlistNotificationEmail(email);
     mailer
-      .sendMail({
-        from: `"YZ Labs website" <${CONTACT_EMAIL_USER}>`,
-        to: CONTACT_TO_EMAIL,
-        replyTo: email,
-        subject: `Waitlist signup: ${email}`,
-        text: `${email} joined the "next batch" waitlist.`,
-      })
+      .sendMail({ from: `"YZ Labs website" <${CONTACT_EMAIL_USER}>`, to: CONTACT_TO_EMAIL, ...notification })
       .catch((err) => console.error("[server] waitlist notification email failed:", err?.message || err));
 
     const confirmation = buildWaitlistConfirmationEmail(email, { shopEmail: CONTACT_TO_EMAIL });
