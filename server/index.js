@@ -12,7 +12,7 @@ import { validateShipping } from "../src/lib/address.js";
 import { buildCustomerEmail, buildOrderEmail, encodeItemsNote } from "./orderEmail.js";
 import { buildWaitlistConfirmationEmail } from "./waitlistEmail.js";
 import { priceCart } from "./pricing.js";
-import { DISCOUNTS, lookupDiscount, checkEligibility, listOffers, looksLikeMultipleCodes, ONE_CODE_PER_ORDER } from "./discounts.js";
+import { DISCOUNTS, lookupDiscount, checkEligibility, listOffers, looksLikeMultipleCodes, ONE_CODE_PER_ORDER, NOT_AVAILABLE } from "./discounts.js";
 import { createLedger, customerKeys } from "./orderLedger.js";
 import { createProductsCache } from "./db/productsCache.js";
 import * as productsRepo from "./db/productsRepo.js";
@@ -132,43 +132,37 @@ function recordSubmission(ip) {
   contactSubmissions.set(ip, recent);
 }
 
-// After a paid order, sends two emails: a summary to the shop
-// (CONTACT_TO_EMAIL: customer, items, delivery address) and a confirmation to
-// the customer (what they bought, where it's going, what happens next).
-// Called from both /api/verify-payment (the customer's browser confirming) and
-// the Razorpay webhook (Razorpay confirming directly, which still fires if the
-// customer closes the tab right after paying) — whichever arrives first sends
-// them, the other is skipped. The details come from Razorpay's own copy of the
-// order rather than the in-memory ledger, so a server restart between checkout
-// and payment doesn't lose them.
+// Split into two steps on purpose. The first (mirrorPaidOrder) is fast and
+// gets AWAITED directly by /api/verify-payment, before it even responds —
+// it's what a discount-eligibility check on this same customer's very next
+// order needs to see land immediately, not "eventually" (see the DB comment
+// in server/db/ordersRepo.js for the bug this fixes: a second purchase
+// moments after the first could still get a first-purchase discount, because
+// nothing before this was guaranteed to have finished by the time the next
+// request arrived). The second (sendOrderEmails) is the slow part — actual
+// mail delivery — kept fire-and-forget exactly as before, since nobody
+// should wait on it to know their payment succeeded.
 //
-// The two emails are claimed and retried independently: one failing (Gmail
-// hiccup, a customer address that bounces) never stops the other, and a retry
-// from the second confirmation path only resends the one that hasn't gone.
+// The two emails inside sendOrderEmails are claimed and retried
+// independently: one failing (Gmail hiccup, a customer address that
+// bounces) never stops the other, and a retry from the second confirmation
+// path only resends the one that hasn't gone. Called from both
+// /api/verify-payment (the customer's browser confirming) and the Razorpay
+// webhook (Razorpay confirming directly, which still fires if the customer
+// closes the tab right after paying) — whichever arrives first sends them,
+// the other is skipped.
 const notifiedOrders = new Set(); // shop email sent
 const confirmedOrders = new Set(); // customer email sent
 const SHOP_PHONE = process.env.SHOP_PHONE || "+91 8660 828944";
 
-async function notifyOrderPaid(orderId, paymentId) {
-  if (!razorpay) return;
-  const sendShop = !notifiedOrders.has(orderId);
-  const sendCustomer = !confirmedOrders.has(orderId);
-  if (!sendShop && !sendCustomer) return;
-  // Claimed before the first await so verify + webhook arriving together
-  // can't both send. Released again on failure so the other path can retry.
-  if (sendShop) notifiedOrders.add(orderId);
-  if (sendCustomer) confirmedOrders.add(orderId);
-  const release = () => {
-    if (sendShop) notifiedOrders.delete(orderId);
-    if (sendCustomer) confirmedOrders.delete(orderId);
-  };
-
+// Fetches the order from Razorpay's own record (so a server restart between
+// checkout and payment doesn't lose anything), updates the in-memory ledger,
+// and mirrors it into the database. Returns { order, duplicateDiscount } or
+// null if the order couldn't even be loaded.
+async function mirrorPaidOrder(orderId, paymentId) {
+  if (!razorpay) return null;
   let order;
-  let shopEmail;
-  // Best-effort: a catalog hiccup should never block the payment
-  // confirmation itself, it should just fall back to showing bare product
-  // ids in the emails (describeItems' existing fallback) instead of names.
-  let products = [];
+  let duplicateDiscount;
   try {
     order = await razorpay.orders.fetch(orderId);
     // Make sure the ledger knows this order is paid even if the server
@@ -176,35 +170,50 @@ async function notifyOrderPaid(orderId, paymentId) {
     // list, or not at all yet) — a paid discounted order must count against
     // the customer's limit.
     ledger.upsertFromRazorpay(order, { forcePaid: true, paymentId });
-    const duplicateDiscount = ledger.isDuplicateRedemption(orderId);
+    duplicateDiscount = ledger.isDuplicateRedemption(orderId);
     if (duplicateDiscount) {
       console.warn(`[server] DUPLICATE DISCOUNT on ${orderId}: this customer had already used the code on an earlier paid order.`);
     }
-    try {
-      await productsCache.ensureFresh();
-      products = productsCache.getAll();
-    } catch (err) {
-      console.error(`[server] couldn't load the catalog for ${orderId}'s emails, falling back to bare ids:`, err?.message || err);
-    }
-    shopEmail = buildOrderEmail(order, paymentId, { duplicateDiscount, products });
   } catch (err) {
-    release();
-    console.error(`[server] could not load paid order ${orderId} to send its emails:`, err);
-    return;
+    console.error(`[server] could not load paid order ${orderId}:`, err);
+    return null;
   }
 
-  // Mirrored into the database before either email is attempted — never
-  // consulted for payment/discount correctness (that stays Razorpay-via-
-  // ledger, above), but this way the order shows up at /admin -> Orders
-  // right away rather than waiting behind two sequential email attempts,
-  // each potentially taking the mailer's full connection timeout if the
-  // connection is stalled (see the mailer comment above). A failure here
-  // never retries and never blocks either email.
+  // Never consulted for payment correctness — that stays Razorpay's own
+  // numbers — but IS now one of two independent checks on discount reuse
+  // (see server/db/ordersRepo.js). A failure here is logged but not
+  // retried; the ledger-based check above still covers this order even if
+  // the database mirror never lands.
   try {
     await ordersRepo.upsertFromRazorpay(order, { paymentId });
   } catch (err) {
     console.error(`[server] couldn't mirror ${orderId} into the database:`, err?.message || err);
   }
+
+  return { order, duplicateDiscount };
+}
+
+async function sendOrderEmails(order, paymentId, duplicateDiscount) {
+  const orderId = order.id;
+  const sendShop = !notifiedOrders.has(orderId);
+  const sendCustomer = !confirmedOrders.has(orderId);
+  if (!sendShop && !sendCustomer) return;
+  // Claimed before the first await so verify + webhook arriving together
+  // can't both send. Released again on failure so the other path can retry.
+  if (sendShop) notifiedOrders.add(orderId);
+  if (sendCustomer) confirmedOrders.add(orderId);
+
+  // Best-effort: a catalog hiccup should never block either email, it
+  // should just fall back to showing bare product ids (describeItems'
+  // existing fallback) instead of names.
+  let products = [];
+  try {
+    await productsCache.ensureFresh();
+    products = productsCache.getAll();
+  } catch (err) {
+    console.error(`[server] couldn't load the catalog for ${orderId}'s emails, falling back to bare ids:`, err?.message || err);
+  }
+  const shopEmail = buildOrderEmail(order, paymentId, { duplicateDiscount, products });
 
   if (sendShop) {
     try {
@@ -249,6 +258,15 @@ async function notifyOrderPaid(orderId, paymentId) {
       console.error(`[server] could not send the customer confirmation for ${orderId}:`, err);
     }
   }
+}
+
+// Convenience wrapper for callers (the webhook) that don't need to await the
+// mirror step separately from the emails — see /api/verify-payment for the
+// one caller that does.
+async function notifyOrderPaid(orderId, paymentId) {
+  const mirrored = await mirrorPaidOrder(orderId, paymentId);
+  if (!mirrored) return;
+  await sendOrderEmails(mirrored.order, paymentId, mirrored.duplicateDiscount);
 }
 
 const app = express();
@@ -455,6 +473,32 @@ app.post("/api/create-order", async (req, res) => {
     }
     const eligible = checkEligibility(found, keys, ledger);
     if (!eligible.ok) return res.status(400).json({ error: eligible.error, discountRejected: true });
+
+    // Second, independent check — against the database mirror of paid
+    // orders (server/db/ordersRepo.js), written synchronously as part of
+    // payment verification itself (see mirrorPaidOrder). The ledger check
+    // above rebuilds from Razorpay's own order list, which can briefly lag
+    // a payment that was JUST captured, and is kept only in memory — empty
+    // again after any restart/redeploy until it rehydrates. This is what
+    // actually fixed a real bug: a second purchase moments after the first,
+    // same customer, still got a first-purchase-only discount, because nothing
+    // before this guaranteed the first order was visible yet. Checked in
+    // ADDITION to the ledger, not instead of it — the ledger alone still
+    // covers orders placed before this database existed.
+    try {
+      const limit = found.def.perCustomerLimit ?? 1;
+      const [dbCount, dbHasPaid] = await Promise.all([
+        ordersRepo.paidRedemptionCount(found.code, keys),
+        found.def.firstPurchaseOnly ? ordersRepo.hasPaidOrderForCustomer(keys) : Promise.resolve(false),
+      ]);
+      if (dbCount >= limit || dbHasPaid) {
+        return res.status(400).json({ error: NOT_AVAILABLE, discountRejected: true });
+      }
+    } catch (err) {
+      console.error("[server] couldn't check discount history in the database:", err?.message || err);
+      return res.status(503).json({ error: "We couldn't verify that discount just now. Please try again in a moment." });
+    }
+
     discount = found;
   }
 
@@ -528,7 +572,7 @@ app.post("/api/create-order", async (req, res) => {
   }
 });
 
-app.post("/api/verify-payment", (req, res) => {
+app.post("/api/verify-payment", async (req, res) => {
   if (verifyPaymentLimited(clientIp(req))) {
     return res.status(429).json({ ok: false, error: "Too many attempts. Please try again in a few minutes." });
   }
@@ -555,10 +599,18 @@ app.post("/api/verify-payment", (req, res) => {
 
   ledger.markPaid(razorpay_order_id, razorpay_payment_id);
 
-  // Not awaited: the customer's confirmation shouldn't wait on our email.
-  notifyOrderPaid(razorpay_order_id, razorpay_payment_id);
+  // Awaited — unlike the emails below — specifically so the database mirror
+  // (server/db/ordersRepo.js) is guaranteed to have landed by the time this
+  // response reaches the customer's browser. A discount-eligibility check on
+  // this same customer's very next order, moments later, reads that table;
+  // it must never be able to arrive before this order shows up in it.
+  const mirrored = await mirrorPaidOrder(razorpay_order_id, razorpay_payment_id);
 
   res.json({ ok: true });
+
+  // Not awaited: the customer shouldn't wait on actual mail delivery to know
+  // their payment succeeded.
+  if (mirrored) sendOrderEmails(mirrored.order, razorpay_payment_id, mirrored.duplicateDiscount).catch((err) => console.error(`[server] could not send emails for ${razorpay_order_id}:`, err));
 });
 
 // Discount usage report: per code, how many paid orders used it, how much it

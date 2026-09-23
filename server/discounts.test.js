@@ -29,24 +29,24 @@ const paidOrder = (ledger, id, who, code = null, createdAt = 1000) => {
   ledger.markPaid(id, `pay_${id}`);
 };
 
-test("FIRSTBUY25 takes exactly 25% off", () => {
-  const r = lookupDiscount("FIRSTBUY25", 107000); // Rs 1070
+test("FIRSTBUY10 takes exactly 10% off", () => {
+  const r = lookupDiscount("FIRSTBUY10", 107000); // Rs 1070
   assert.equal(r.ok, true);
-  assert.equal(r.discountPaise, 26750);
-  const clock = lookupDiscount("FIRSTBUY25", 1000); // Rs 10 test-priced clock
-  assert.equal(clock.discountPaise, 250);
-  assert.equal(1000 - clock.discountPaise, 750);
+  assert.equal(r.discountPaise, 10700);
+  const clock = lookupDiscount("FIRSTBUY10", 1000); // Rs 10 test-priced clock
+  assert.equal(clock.discountPaise, 100);
+  assert.equal(1000 - clock.discountPaise, 900);
 });
 
 test("percent discounts round to the nearest paisa", () => {
-  assert.equal(lookupDiscount("FIRSTBUY25", 1001).discountPaise, 250); // 250.25
-  assert.equal(lookupDiscount("FIRSTBUY25", 1002).discountPaise, 251); // 250.5 rounds up
+  assert.equal(lookupDiscount("FIRSTBUY10", 1001).discountPaise, 100); // 100.1
+  assert.equal(lookupDiscount("FIRSTBUY10", 1005).discountPaise, 101); // 100.5 rounds up
 });
 
 test("codes are case- and whitespace-insensitive", () => {
-  assert.equal(normalizeCode("  firstbuy25 "), "FIRSTBUY25");
-  assert.equal(lookupDiscount(" firstbuy25 ", 100000).ok, true);
-  assert.equal(lookupDiscount("first buy25", 100000).ok, true);
+  assert.equal(normalizeCode("  firstbuy10 "), "FIRSTBUY10");
+  assert.equal(lookupDiscount(" firstbuy10 ", 100000).ok, true);
+  assert.equal(lookupDiscount("first buy10", 100000).ok, true);
 });
 
 test("unknown, malformed and non-string codes all fail with the same message", () => {
@@ -124,19 +124,19 @@ test("customerKeys: any one shared identifier makes two customers the same", () 
   assert.equal(shares(a, sameEmailAlias), false);
 });
 
-test("FIRSTBUY25 is available to a new customer and refused after their first paid order", () => {
+test("FIRSTBUY10 is available to a new customer and refused after their first paid order", () => {
   const ledger = emptyLedger();
-  const found = lookupDiscount("FIRSTBUY25", 100000);
+  const found = lookupDiscount("FIRSTBUY10", 100000);
   assert.equal(checkEligibility(found, customerKeys(asha), ledger).ok, true);
 
-  paidOrder(ledger, "order_1", asha, "FIRSTBUY25");
+  paidOrder(ledger, "order_1", asha, "FIRSTBUY10");
   assert.equal(checkEligibility(found, customerKeys(asha), ledger).ok, false);
 });
 
 test("evading by changing the email doesn't work while the phone or address is reused", () => {
   const ledger = emptyLedger();
-  paidOrder(ledger, "order_1", asha, "FIRSTBUY25");
-  const found = lookupDiscount("FIRSTBUY25", 100000);
+  paidOrder(ledger, "order_1", asha, "FIRSTBUY10");
+  const found = lookupDiscount("FIRSTBUY10", 100000);
   const newEmail = customerKeys({ ...asha, email: "brand.new@other.com" });
   assert.equal(checkEligibility(found, newEmail, ledger).ok, false, "same phone/address");
   const allNew = customerKeys({ email: "totally@new.com", phone: "9333333333", address: "77 New Rd", pincode: "400001" });
@@ -146,13 +146,13 @@ test("evading by changing the email doesn't work while the phone or address is r
 test("first-purchase codes refuse anyone who has already paid for ANY order", () => {
   const ledger = emptyLedger();
   paidOrder(ledger, "order_1", asha, null); // earlier order, no discount
-  assert.equal(checkEligibility(lookupDiscount("FIRSTBUY25", 100000), customerKeys(asha), ledger).ok, false);
+  assert.equal(checkEligibility(lookupDiscount("FIRSTBUY10", 100000), customerKeys(asha), ledger).ok, false);
 });
 
 test("an abandoned (unpaid) checkout doesn't use a code up", () => {
   const ledger = emptyLedger();
-  ledger.record({ id: "order_1", status: "created", code: "FIRSTBUY25", discountPaise: 100, subtotalPaise: 1000, totalPaise: 900, keys: customerKeys(asha), email: asha.email, createdAt: 1 });
-  assert.equal(checkEligibility(lookupDiscount("FIRSTBUY25", 100000), customerKeys(asha), ledger).ok, true);
+  ledger.record({ id: "order_1", status: "created", code: "FIRSTBUY10", discountPaise: 100, subtotalPaise: 1000, totalPaise: 900, keys: customerKeys(asha), email: asha.email, createdAt: 1 });
+  assert.equal(checkEligibility(lookupDiscount("FIRSTBUY10", 100000), customerKeys(asha), ledger).ok, true);
 });
 
 test("perCustomerLimit allows repeat use up to the limit", () => {
@@ -168,16 +168,16 @@ test("perCustomerLimit allows repeat use up to the limit", () => {
 
 test("eligibility errors never say WHY (can't be used to probe who has ordered)", () => {
   const ledger = emptyLedger();
-  paidOrder(ledger, "o1", asha, "FIRSTBUY25");
-  const r = checkEligibility(lookupDiscount("FIRSTBUY25", 100000), customerKeys(asha), ledger);
+  paidOrder(ledger, "o1", asha, "FIRSTBUY10");
+  const r = checkEligibility(lookupDiscount("FIRSTBUY10", 100000), customerKeys(asha), ledger);
   assert.equal(r.ok, false);
   assert.doesNotMatch(r.error, /email|phone|address|first|ordered/i);
 });
 
 test("a discount used twice by the same customer is flagged on the later order only", () => {
   const ledger = emptyLedger();
-  paidOrder(ledger, "order_a", asha, "FIRSTBUY25", 1000);
-  paidOrder(ledger, "order_b", asha, "FIRSTBUY25", 2000); // e.g. two tabs, both paid
+  paidOrder(ledger, "order_a", asha, "FIRSTBUY10", 1000);
+  paidOrder(ledger, "order_b", asha, "FIRSTBUY10", 2000); // e.g. two tabs, both paid
   assert.equal(ledger.isDuplicateRedemption("order_a"), false);
   assert.equal(ledger.isDuplicateRedemption("order_b"), true);
 });
@@ -186,7 +186,7 @@ test("history is rebuilt from Razorpay's order list, across pages", async () => 
   const notes = (who, extra = {}) => ({ ship_email: who.email, ship_phone: `+91${who.phone}`, ship_address: who.address, ship_pincode: who.pincode, ...extra });
   const pages = [
     [
-      { id: "o1", status: "paid", amount: 90000, created_at: 100, notes: notes(asha, { discount_code: "FIRSTBUY25", discount_paise: "10000", subtotal_paise: "100000" }) },
+      { id: "o1", status: "paid", amount: 90000, created_at: 100, notes: notes(asha, { discount_code: "FIRSTBUY10", discount_paise: "10000", subtotal_paise: "100000" }) },
       { id: "o2", status: "created", amount: 5000, created_at: 200, notes: [] }, // Razorpay sends [] for empty notes
     ],
     [{ id: "o3", status: "attempted", amount: 5000, created_at: 300, notes: notes({ email: "b@b.com", phone: "9444444444", address: "1 A St", pincode: "100001" }) }],
@@ -202,9 +202,9 @@ test("history is rebuilt from Razorpay's order list, across pages", async () => 
   assert.equal(await ledger.hydrate(), 3);
   assert.equal(calls, 2);
   assert.equal(ledger.hasPaidOrder(customerKeys(asha)), true);
-  assert.equal(ledger.paidRedemptionCount("FIRSTBUY25", customerKeys(asha)), 1);
+  assert.equal(ledger.paidRedemptionCount("FIRSTBUY10", customerKeys(asha)), 1);
   assert.equal(ledger.hasPaidOrder(customerKeys({ email: "b@b.com", phone: "9444444444", address: "1 A St", pincode: "100001" })), false, "unpaid orders don't count");
-  const stats = ledger.statsByCode().get("FIRSTBUY25");
+  const stats = ledger.statsByCode().get("FIRSTBUY10");
   assert.equal(stats.paid[0].discountPaise, 10000);
   assert.equal(stats.paid[0].subtotalPaise, 100000);
 });
@@ -252,11 +252,11 @@ test("markPaid returns null for an order this server hasn't seen; upsert reconci
   const ledger = emptyLedger();
   assert.equal(ledger.markPaid("order_x", "pay_x"), null);
   const rec = ledger.upsertFromRazorpay(
-    { id: "order_x", status: "attempted", amount: 75000, created_at: 5, notes: { ship_email: "asha@example.com", discount_code: "FIRSTBUY25", discount_paise: "25000", subtotal_paise: "100000" } },
+    { id: "order_x", status: "attempted", amount: 75000, created_at: 5, notes: { ship_email: "asha@example.com", discount_code: "FIRSTBUY10", discount_paise: "25000", subtotal_paise: "100000" } },
     { forcePaid: true, paymentId: "pay_x" }
   );
   assert.equal(rec.status, "paid");
-  assert.equal(ledger.paidRedemptionCount("FIRSTBUY25", ["e:asha@example.com"]), 1);
+  assert.equal(ledger.paidRedemptionCount("FIRSTBUY10", ["e:asha@example.com"]), 1);
 });
 
 test("priceCart prices from the catalog in integer paise and rejects bad carts", () => {
@@ -272,17 +272,17 @@ test("the owner's order email shows the discount and flags duplicates", () => {
   const order = {
     id: "order_1",
     amount: 80250,
-    notes: { ship_name: "Asha Rao", ship_email: "asha@example.com", items: "round-planter|black|1|1070", discount_code: "FIRSTBUY25", discount_paise: "26750", subtotal_paise: "107000" },
+    notes: { ship_name: "Asha Rao", ship_email: "asha@example.com", items: "round-planter|black|1|1070", discount_code: "FIRSTBUY10", discount_paise: "26750", subtotal_paise: "107000" },
   };
   const plain = buildOrderEmail(order, "pay_1");
-  assert.match(plain.subject, /Rs 802\.50 from Asha Rao \(FIRSTBUY25\)/);
+  assert.match(plain.subject, /Rs 802\.50 from Asha Rao \(FIRSTBUY10\)/);
   assert.match(plain.text, /Subtotal:\s+Rs 1,070/);
-  assert.match(plain.text, /Discount \(FIRSTBUY25\): -Rs 267\.50/);
+  assert.match(plain.text, /Discount \(FIRSTBUY10\): -Rs 267\.50/);
   assert.match(plain.text, /Paid:\s+Rs 802\.50/);
   assert.doesNotMatch(plain.text, /CHECK/);
   const dup = buildOrderEmail(order, "pay_1", { duplicateDiscount: true });
   assert.match(dup.subject, /^\[CHECK\]/);
-  assert.match(dup.text, /already used FIRSTBUY25/);
+  assert.match(dup.text, /already used FIRSTBUY10/);
   // and an ordinary undiscounted order still reads as before
   const none = buildOrderEmail({ id: "o", amount: 100000, notes: { ship_name: "B" } }, "p");
   assert.doesNotMatch(none.text, /TOTALS|Discount/);
@@ -295,7 +295,7 @@ test("the customer's confirmation lists the order, the address and what happens 
     notes: {
       ship_name: "Asha Rao", ship_email: "asha@example.com", ship_phone: "9876543210",
       ship_address: "12 MG Road", ship_city: "Bengaluru", ship_state: "Karnataka", ship_pincode: "560001",
-      items: "round-planter|black|1|1070", discount_code: "FIRSTBUY25", discount_paise: "26750", subtotal_paise: "107000",
+      items: "round-planter|black|1|1070", discount_code: "FIRSTBUY10", discount_paise: "26750", subtotal_paise: "107000",
     },
   };
   const mail = buildCustomerEmail(order, "pay_1", { email: "shop@example.com", phone: "+91 1" });
@@ -306,7 +306,7 @@ test("the customer's confirmation lists the order, the address and what happens 
   assert.match(mail.text, /Order ID:\s+order_1/);
   assert.match(mail.text, /1 x .*Rs 1070 each/);
   assert.match(mail.text, /Subtotal:\s+Rs 1,070/);
-  assert.match(mail.text, /Discount \(FIRSTBUY25\): -Rs 267\.50/);
+  assert.match(mail.text, /Discount \(FIRSTBUY10\): -Rs 267\.50/);
   assert.match(mail.text, /Total paid:\s+Rs 802\.50/);
   assert.match(mail.text, /12 MG Road/);
   assert.match(mail.text, /Bengaluru, Karnataka - 560001/);
@@ -334,13 +334,13 @@ test("no customer confirmation without a usable email, and newlines in fields ca
 
 // ---------------------------------------------------------------- offers list
 
-test("the offers list advertises FIRSTBUY25 with what it would save on this cart", () => {
+test("the offers list advertises FIRSTBUY10 with what it would save on this cart", () => {
   const offers = listOffers(214000); // Rs 2140
-  const fb = offers.find((o) => o.code === "FIRSTBUY25");
-  assert.ok(fb, "FIRSTBUY25 is listed");
+  const fb = offers.find((o) => o.code === "FIRSTBUY10");
+  assert.ok(fb, "FIRSTBUY10 is listed");
   assert.equal(fb.applicable, true);
-  assert.equal(fb.savingsPaise, 53500);
-  assert.equal(fb.description, "25% off your first order");
+  assert.equal(fb.savingsPaise, 21400);
+  assert.equal(fb.description, "10% off your first order");
   assert.deepEqual(fb.terms, ["First order only", "One use per customer"]);
 });
 
@@ -407,25 +407,28 @@ test("the fine print is generated from the rules actually enforced", () => {
 // ------------------------------------------------- only one discount per order
 
 test("a checkout carries ONE code: arrays and objects are refused, with a clear message", () => {
-  for (const many of [["FIRSTBUY25", "SUMMER10"], ["FIRSTBUY25"], { a: "FIRSTBUY25" }]) {
+  for (const many of [["FIRSTBUY10", "SUMMER10"], ["FIRSTBUY10"], { a: "FIRSTBUY10" }]) {
     assert.equal(looksLikeMultipleCodes(many), true);
     assert.equal(lookupDiscount(many, 100000).ok, false, "never redeemable via a non-string");
   }
-  for (const single of ["FIRSTBUY25", "", null, undefined]) assert.equal(looksLikeMultipleCodes(single), false);
+  for (const single of ["FIRSTBUY10", "", null, undefined]) assert.equal(looksLikeMultipleCodes(single), false);
   assert.match(ONE_CODE_PER_ORDER, /only one/i);
 });
 
 test("several codes smuggled into one string don't work either", () => {
   withCodes({ SUMMER10: { type: "percent", value: 10 } }, () => {
-    for (const combined of ["FIRSTBUY25,SUMMER10", "FIRSTBUY25 SUMMER10", "FIRSTBUY25;SUMMER10", "FIRSTBUY25+SUMMER10", "FIRSTBUY25&SUMMER10"]) {
+    for (const combined of ["FIRSTBUY10,SUMMER10", "FIRSTBUY10 SUMMER10", "FIRSTBUY10;SUMMER10", "FIRSTBUY10+SUMMER10", "FIRSTBUY10&SUMMER10"]) {
       assert.equal(lookupDiscount(combined, 100000).ok, false, combined);
     }
   });
 });
 
 test("the discount comes off once: the result is exactly one code's saving, never a sum", () => {
-  withCodes({ SUMMER10: { type: "percent", value: 10 } }, () => {
-    assert.equal(lookupDiscount("FIRSTBUY25", 100000).discountPaise, 25000);
-    assert.equal(lookupDiscount("SUMMER10", 100000).discountPaise, 10000);
+  // Deliberately a different percentage than FIRSTBUY10's own, so a bug that
+  // summed the two (or picked the wrong one) would produce a visibly wrong
+  // number rather than coincidentally matching by chance.
+  withCodes({ SUMMER20: { type: "percent", value: 20 } }, () => {
+    assert.equal(lookupDiscount("FIRSTBUY10", 100000).discountPaise, 10000);
+    assert.equal(lookupDiscount("SUMMER20", 100000).discountPaise, 20000);
   });
 });

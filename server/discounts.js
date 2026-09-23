@@ -23,11 +23,11 @@
 // code), and each code is limited per customer as above. "Customer" isn't an
 // account — see orderLedger.js for how they're recognised.
 export const DISCOUNTS = {
-  FIRSTBUY25: {
-    description: "25% off your first order",
+  FIRSTBUY10: {
+    description: "10% off your first order",
     listed: true,
     type: "percent",
-    value: 25,
+    value: 10,
     active: true,
     firstPurchaseOnly: true,
   },
@@ -41,8 +41,10 @@ const MIN_ORDER_PAISE = 100;
 // not-started codes, so the endpoint can't be used to tell which codes exist.
 const INVALID = "That discount code isn't valid.";
 // Same for every eligibility failure (already used, not a first order): it
-// must not reveal whether a given email, phone or address has ordered before.
-const NOT_AVAILABLE = "This code has already been used, or isn't available for this order.";
+// must not reveal whether a given email, phone or address has ordered
+// before. Exported so server/index.js's database-backed second check (see
+// server/db/ordersRepo.js) can use identical wording.
+export const NOT_AVAILABLE = "This code has already been used, or isn't available for this order.";
 
 // `reason` lets callers tell a code that's merely not met YET for this cart
 // ("minimum" — worth showing as a greyed-out offer) from one that isn't
@@ -61,7 +63,7 @@ export function looksLikeMultipleCodes(input) {
   return input !== null && typeof input === "object";
 }
 
-// "  firstbuy25 " -> "FIRSTBUY25"; anything that isn't a plausible code -> "".
+// "  firstbuy10 " -> "FIRSTBUY10"; anything that isn't a plausible code -> "".
 export function normalizeCode(input) {
   if (typeof input !== "string") return "";
   const code = input.replace(/\s+/g, "").toUpperCase();

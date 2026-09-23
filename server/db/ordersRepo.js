@@ -1,5 +1,6 @@
 import { query } from "./pool.js";
 import { notesOf } from "../razorpayNotes.js";
+import { customerKeys } from "../orderLedger.js";
 
 function normalize(row) {
   return {
@@ -26,12 +27,17 @@ function normalize(row) {
   };
 }
 
-// Mirrors a Razorpay order into the database for fast admin browsing —
-// called best-effort from notifyOrderPaid, its own try/catch, never blocking
-// the payment confirmation or either order email. This table is NEVER
-// consulted for pricing or discount-eligibility correctness; that stays
-// Razorpay-via-orderLedger.js exactly as before. Only the three
-// fulfillment_* columns are ever authoritative here (see updateFulfillment).
+// Mirrors a Razorpay order into the database — for fast admin browsing, and
+// (see hasPaidOrderForCustomer/paidRedemptionCount below) as a second,
+// independent check on discount reuse. Pricing itself is never decided from
+// here — that stays Razorpay's own numbers, checked server-side on every
+// order. Only the three fulfillment_* columns are ever authoritative here
+// (see updateFulfillment).
+//
+// Awaited directly by /api/verify-payment (not just fire-and-forget like the
+// order emails) specifically so this write lands before that request even
+// responds — a discount-eligibility check on someone's very next order,
+// moments later, must see this one as paid.
 export async function upsertFromRazorpay(order, { paymentId } = {}) {
   const n = notesOf(order);
   const discountPaise = Number(n.discount_paise) || 0;
@@ -78,6 +84,30 @@ export async function list({ limit = 100, offset = 0, fulfillmentStatus } = {}) 
     params
   );
   return rows.map(normalize);
+}
+
+const overlaps = (a, b) => a.some((k) => b.includes(k));
+function keysForRow(row) {
+  return customerKeys({ email: row.ship_email, phone: row.ship_phone, address: row.ship_address, pincode: row.ship_pincode });
+}
+
+// Discount-eligibility checks, backed by this table rather than Razorpay's
+// order list — see the comment on upsertFromRazorpay above for why. Checked
+// IN ADDITION TO (not instead of) the existing Razorpay-rebuilt ledger in
+// server/orderLedger.js: that one still covers orders placed before this
+// table existed, which these two can't see. A plain table scan of paid
+// orders is fine at this shop's volume; revisit if that stops being true.
+
+// Any paid order at all for this customer?
+export async function hasPaidOrderForCustomer(keys) {
+  const { rows } = await query(`SELECT ship_email, ship_phone, ship_address, ship_pincode FROM orders WHERE status = 'paid'`);
+  return rows.some((row) => overlaps(keysForRow(row), keys));
+}
+
+// How many paid orders has this customer already used `code` on?
+export async function paidRedemptionCount(code, keys) {
+  const { rows } = await query(`SELECT ship_email, ship_phone, ship_address, ship_pincode FROM orders WHERE status = 'paid' AND discount_code = $1`, [code]);
+  return rows.filter((row) => overlaps(keysForRow(row), keys)).length;
 }
 
 export async function updateFulfillment(id, { fulfillmentStatus, trackingNote }) {

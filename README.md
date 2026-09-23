@@ -83,11 +83,11 @@ The customer gets their own confirmation too, sent to the email they entered at 
 Codes are defined in [`server/discounts.js`](server/discounts.js) — add an entry to `DISCOUNTS` and it works, no other change needed. They live on the server only (never in the browser bundle); the cart just asks the server whether a code is valid for its contents.
 
 ```js
-FIRSTBUY25: {
-  description: "25% off your first order",
+FIRSTBUY10: {
+  description: "10% off your first order",
   listed: true,             // show it under "Check available offers" in the cart
   type: "percent",          // or "fixed" (value = rupees off)
-  value: 25,
+  value: 10,
   firstPurchaseOnly: true,  // only customers with no earlier paid order
   // optional: active, startsAt, expiresAt, minSubtotal, maxDiscount, perCustomerLimit (default 1)
 },
