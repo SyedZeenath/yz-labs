@@ -16,9 +16,13 @@ services:
         sync: false
       - key: CONTACT_EMAIL_USER
         sync: false
-      - key: CONTACT_EMAIL_PASS
-        sync: false
       - key: CONTACT_TO_EMAIL
+        sync: false
+      - key: GMAIL_OAUTH_CLIENT_ID
+        sync: false
+      - key: GMAIL_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GMAIL_OAUTH_REFRESH_TOKEN
         sync: false
       - key: ADMIN_TOKEN
         sync: false

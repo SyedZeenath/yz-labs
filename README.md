@@ -25,6 +25,25 @@ This runs the Vite dev server (`:5173`) and the Express backend (`:8787`) togeth
 
 Get test keys from the [Razorpay Dashboard](https://dashboard.razorpay.com/app/keys) → Settings → API Keys → Generate Test Key.
 
+## Email sending
+
+The contact form, waitlist, and order confirmations all send through **Gmail's own API** (`server/gmailApi.js`), not SMTP — a plain HTTPS call, so it isn't affected by Render (or most free hosts) blocking outbound SMTP the way `nodemailer` was. Mail still genuinely comes from your real Gmail address; no new email-provider account or domain needed. Every feature that sends email also saves its own record first (a signup/message to the database, an order to Razorpay) — see the "DB-first" comments in `server/index.js` — so nothing here being unconfigured or briefly down ever loses that record, it just means nobody gets emailed about it yet.
+
+One-time setup, per Gmail account you want sending as:
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/), signed in as the Gmail account that should send mail (e.g. `yzlabs.store@gmail.com`). Create a new project (any name).
+2. [APIs & Services → Library](https://console.cloud.google.com/apis/library) → search "Gmail API" → **Enable**.
+3. [APIs & Services → OAuth consent screen](https://console.cloud.google.com/apis/credentials/consent) → User type **External** → Create. Fill in an app name and your email for the two contact fields, save and continue. Under **Scopes**, add `https://www.googleapis.com/auth/gmail.send`. Under **Test users**, add the same Gmail address. Leave the app in **Testing** status — being listed as a test user is what keeps the refresh token from expiring, so there's no need to publish/verify it.
+4. [APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials) → **Create Credentials → OAuth client ID** → Application type **Desktop app** → Create. Copy the **Client ID** and **Client secret**.
+5. Add those two to `.env` as `GMAIL_OAUTH_CLIENT_ID` / `GMAIL_OAUTH_CLIENT_SECRET`, then run:
+   ```bash
+   node scripts/gmailOAuthSetup.mjs
+   ```
+   Open the URL it prints, sign in with that same Gmail account, and approve access — the script catches the redirect automatically and prints a `GMAIL_OAUTH_REFRESH_TOKEN` to add to `.env`.
+6. Set `CONTACT_EMAIL_USER` to that Gmail address (and optionally `CONTACT_TO_EMAIL`, if the shop's own copies should land somewhere else).
+
+For production, add all five (`CONTACT_EMAIL_USER`, `CONTACT_TO_EMAIL`, `GMAIL_OAUTH_CLIENT_ID`, `GMAIL_OAUTH_CLIENT_SECRET`, `GMAIL_OAUTH_REFRESH_TOKEN`) to Render's environment variables too — the refresh token from step 5 works there as well, no separate consent flow needed per environment.
+
 ## Editing the catalog
 
 Products live in the database now, edited at **`/admin`** (see below) — add, edit, price, or archive a product there and it's live immediately, no deploy needed. Photos are still plain files: drop them into `public/products/<folder>/` and match that folder name to the product's "Image folder" field in the admin form (`hero.*` is the catalog shot; every other image becomes the detail-popup gallery).
@@ -52,7 +71,7 @@ The products list is cached in memory for fast checkout (`server/db/productsCach
 
 Checkout collects the customer's name, email, mobile and India delivery address before payment. Each paid order then reaches you in three places:
 
-- **Email**: one "New order" email per paid order (customer, items, ship-to address) to `CONTACT_TO_EMAIL`. Needs the `CONTACT_EMAIL_*` variables set.
+- **Email**: one "New order" email per paid order (customer, items, ship-to address) to `CONTACT_TO_EMAIL`. Needs email sending configured — see "Email sending" above.
 
 The customer gets their own confirmation too, sent to the email they entered at checkout: order ID, items, discount breakdown, delivery address, what happens next, and your contact details (replies go to `CONTACT_TO_EMAIL`; the phone number shown is `SHOP_PHONE`, default `+91 8660 828944`). The two emails are independent — if one fails to send, the other still goes, and the retry (from the webhook or a second verify) only resends the missing one. It complements Razorpay's own payment receipt rather than replacing it; in the Razorpay Dashboard → Settings → Notifications, leave the customer email/SMS receipts on. Orders with no customer email (placed before the delivery step existed) just skip it.
 - **Razorpay Dashboard**: the same details are stored in the order's notes (`ship_name`, `ship_address`, …) — still the source of truth for payment status and discount history.

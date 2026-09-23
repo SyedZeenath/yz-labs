@@ -6,10 +6,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Razorpay from "razorpay";
-import nodemailer from "nodemailer";
+import { createGmailMailer } from "./gmailApi.js";
 import helmet from "helmet";
 import { validateShipping } from "../src/lib/address.js";
 import { buildCustomerEmail, buildOrderEmail, encodeItemsNote } from "./orderEmail.js";
+import { buildWaitlistConfirmationEmail } from "./waitlistEmail.js";
 import { priceCart } from "./pricing.js";
 import { DISCOUNTS, lookupDiscount, checkEligibility, listOffers, looksLikeMultipleCodes, ONE_CODE_PER_ORDER } from "./discounts.js";
 import { createLedger, customerKeys } from "./orderLedger.js";
@@ -80,34 +81,34 @@ const ledger = createLedger({
 // `ensureFresh(0)` so an edit is reflected immediately, not after the TTL.
 const productsCache = createProductsCache({ fetchAllProducts: productsRepo.listActive });
 
-// Contact form mail. CONTACT_EMAIL_USER authenticates and sends; the
-// message lands in CONTACT_TO_EMAIL (defaults to that same address, so a
-// single Gmail account both sends and receives). Gmail requires an App
-// Password here, not the account's normal login password.
+// Mail. CONTACT_EMAIL_USER is the Gmail address everything sends as; the
+// shop's own copies (contact enquiries, waitlist/order notifications) land
+// in CONTACT_TO_EMAIL (defaults to that same address).
+//
+// Sent via the Gmail API (server/gmailApi.js), not SMTP — nodemailer's SMTP
+// connection to Gmail hung indefinitely on Render (very likely blocked/
+// throttled outbound SMTP, a common free-tier restriction), silently losing
+// every email. The Gmail API is a plain HTTPS call, so it isn't subject to
+// that at all, and mail still genuinely comes from this real Gmail account.
+// One-time setup per sending account: scripts/gmailOAuthSetup.mjs (see the
+// README's "Email sending" section).
 const CONTACT_EMAIL_USER = process.env.CONTACT_EMAIL_USER;
-const CONTACT_EMAIL_PASS = process.env.CONTACT_EMAIL_PASS;
 const CONTACT_TO_EMAIL = process.env.CONTACT_TO_EMAIL || CONTACT_EMAIL_USER;
+const GMAIL_OAUTH_CLIENT_ID = process.env.GMAIL_OAUTH_CLIENT_ID;
+const GMAIL_OAUTH_CLIENT_SECRET = process.env.GMAIL_OAUTH_CLIENT_SECRET;
+const GMAIL_OAUTH_REFRESH_TOKEN = process.env.GMAIL_OAUTH_REFRESH_TOKEN;
 
-if (!CONTACT_EMAIL_USER || !CONTACT_EMAIL_PASS) {
+if (!CONTACT_EMAIL_USER || !GMAIL_OAUTH_CLIENT_ID || !GMAIL_OAUTH_CLIENT_SECRET || !GMAIL_OAUTH_REFRESH_TOKEN) {
   console.warn(
-    "[server] CONTACT_EMAIL_USER / CONTACT_EMAIL_PASS are not set in .env " +
-      "so /api/contact will return an error until they're added."
+    "[server] CONTACT_EMAIL_USER / GMAIL_OAUTH_CLIENT_ID / GMAIL_OAUTH_CLIENT_SECRET / GMAIL_OAUTH_REFRESH_TOKEN " +
+      "are not all set in .env, so no email will be sent (the contact form, waitlist, and order confirmations " +
+      "will still work — see server/index.js's DB-first comments — they just won't email anyone)."
   );
 }
 
 const mailer =
-  CONTACT_EMAIL_USER && CONTACT_EMAIL_PASS
-    ? nodemailer.createTransport({
-        service: "gmail",
-        auth: { user: CONTACT_EMAIL_USER, pass: CONTACT_EMAIL_PASS },
-        // Without these, a connection that never completes (some hosts
-        // block or throttle outbound SMTP) hangs the request forever
-        // instead of failing — the caller then waits with no feedback at
-        // all rather than getting a real error to show or retry on.
-        connectionTimeout: 10_000,
-        greetingTimeout: 10_000,
-        socketTimeout: 15_000,
-      })
+  CONTACT_EMAIL_USER && GMAIL_OAUTH_CLIENT_ID && GMAIL_OAUTH_CLIENT_SECRET && GMAIL_OAUTH_REFRESH_TOKEN
+    ? createGmailMailer({ clientId: GMAIL_OAUTH_CLIENT_ID, clientSecret: GMAIL_OAUTH_CLIENT_SECRET, refreshToken: GMAIL_OAUTH_REFRESH_TOKEN })
     : null;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -211,7 +212,7 @@ async function notifyOrderPaid(orderId, paymentId) {
       // if email isn't configured or delivery fails.
       console.log(`[server] PAID ORDER ${orderId}\n${shopEmail.text}`);
       if (!mailer) {
-        console.warn("[server] order notification email skipped: CONTACT_EMAIL_USER / CONTACT_EMAIL_PASS are not set.");
+        console.warn("[server] order notification email skipped: mail is not configured (see the CONTACT_EMAIL_USER/GMAIL_OAUTH_* warning at startup).");
       } else {
         await mailer.sendMail({
           from: `"YZ Labs orders" <${CONTACT_EMAIL_USER}>`,
@@ -233,7 +234,7 @@ async function notifyOrderPaid(orderId, paymentId) {
       if (!confirmation) {
         console.warn(`[server] no customer email on ${orderId}; confirmation not sent.`);
       } else if (!mailer) {
-        console.warn("[server] customer confirmation skipped: CONTACT_EMAIL_USER / CONTACT_EMAIL_PASS are not set.");
+        console.warn("[server] customer confirmation skipped: mail is not configured (see the CONTACT_EMAIL_USER/GMAIL_OAUTH_* warning at startup).");
       } else {
         await mailer.sendMail({
           from: `"YZ Labs" <${CONTACT_EMAIL_USER}>`,
@@ -1006,9 +1007,10 @@ app.post("/api/waitlist", async (req, res) => {
   }
   res.json({ ok: true });
 
-  // Best-effort notification, after the response — its failure (including a
-  // hung/blocked SMTP connection, now bounded by the mailer's own timeouts)
-  // never affects whether the signup counted.
+  // Best-effort, after the response — each independent of the other, so one
+  // failing (or a hung connection, now bounded by the Gmail mailer's own
+  // token/HTTP handling) never blocks or is blocked by the other, and
+  // neither affects whether the signup counted.
   if (mailer) {
     mailer
       .sendMail({
@@ -1019,6 +1021,11 @@ app.post("/api/waitlist", async (req, res) => {
         text: `${email} joined the "next batch" waitlist.`,
       })
       .catch((err) => console.error("[server] waitlist notification email failed:", err?.message || err));
+
+    const confirmation = buildWaitlistConfirmationEmail(email, { shopEmail: CONTACT_TO_EMAIL });
+    mailer
+      .sendMail({ from: `"YZ Labs" <${CONTACT_EMAIL_USER}>`, ...confirmation })
+      .catch((err) => console.error("[server] waitlist confirmation email failed:", err?.message || err));
   }
 });
 
