@@ -29,7 +29,16 @@ const REFRESH_MARGIN_MS = 60_000;
 // both parts when it is (order emails) — every mail client picks whichever
 // part it can render, so this never drops the plain-text fallback.
 function buildRawMessage({ from, to, replyTo, subject, text, html }) {
-  const headers = [`From: ${from}`, `To: ${to}`, replyTo ? `Reply-To: ${replyTo}` : null, `Subject: ${subject}`, "MIME-Version: 1.0"];
+  // filter(Boolean) matters here, not just style: joining an array
+  // containing `null` (when replyTo is omitted) turns it into an EMPTY
+  // LINE in the middle of the header block once .join("\r\n") runs — and a
+  // blank line is exactly what tells every RFC 822 parser "headers end
+  // here, body starts here". Everything after it (Subject, MIME-Version,
+  // Content-Type, and the entire multipart body) would then be swallowed
+  // into the message body as literal text and rendered as plain text —
+  // which is exactly what happened to the admin password-reset email (the
+  // first one built with no replyTo at all).
+  const headers = [`From: ${from}`, `To: ${to}`, replyTo ? `Reply-To: ${replyTo}` : null, `Subject: ${subject}`, "MIME-Version: 1.0"].filter(Boolean);
 
   if (!html) {
     const message = `${[...headers, "Content-Type: text/plain; charset=utf-8"].join("\r\n")}\r\n\r\n${text}`;

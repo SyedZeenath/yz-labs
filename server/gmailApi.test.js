@@ -49,15 +49,30 @@ test("sendMail builds a correct raw message and sends with a bearer token", asyn
   assert.match(decoded, /\r\n\r\nBody text$/);
 });
 
-test("omits the Reply-To header entirely when none is given", async (t) => {
+test("omits the Reply-To header entirely when none is given, without leaving a blank line that would truncate the other headers", async (t) => {
+  // Regression test: a `null` left in the headers array (from `replyTo ?
+  // ... : null`) becomes an EMPTY LINE once the array is joined with
+  // "\r\n" — and a blank line is what every RFC 822 parser reads as "end
+  // of headers, start of body". Subject/MIME-Version/Content-Type (and,
+  // for an HTML send, the entire multipart body) would then be swallowed
+  // into the message body and rendered as literal text instead of parsed
+  // — exactly what happened to the real admin password-reset email, the
+  // first one built with no replyTo at all.
   let capturedBody;
   const { fn } = fakeFetch({ onSend: (opts) => { capturedBody = opts.body; return { ok: true, json: async () => ({}) }; } });
   t.mock.method(global, "fetch", fn);
 
   const mailer = createGmailMailer({ clientId: "id", clientSecret: "secret", refreshToken: "refresh" });
-  await mailer.sendMail({ from: "shop@x.com", to: "customer@x.com", subject: "Hi", text: "Body" });
+  await mailer.sendMail({ from: "shop@x.com", to: "customer@x.com", subject: "Hi", text: "Body", html: "<p>Body</p>" });
 
-  assert.doesNotMatch(decodeRawFromBody(capturedBody), /Reply-To/);
+  const raw = Buffer.from(JSON.parse(capturedBody).raw, "base64url").toString("utf8");
+  assert.doesNotMatch(raw, /Reply-To/);
+  // The full header block, uninterrupted, immediately followed by the
+  // blank line that correctly separates headers from the multipart body.
+  assert.match(raw, /^From: shop@x\.com\r\nTo: customer@x\.com\r\nSubject: Hi\r\nMIME-Version: 1\.0\r\nContent-Type: multipart\/alternative; boundary="[^"]+"\r\n\r\n--/);
+  // Both parts actually parsed as MIME parts, not swallowed into the body.
+  assert.match(raw, /Content-Type: text\/plain; charset=utf-8\r\n\r\nBody/);
+  assert.match(raw, /Content-Type: text\/html; charset=utf-8\r\n\r\n<p>Body<\/p>/);
 });
 
 test("access token is cached and reused across sends, not refetched every time", async (t) => {
