@@ -11,6 +11,18 @@
 // `imageFolder` is separate from `id` on purpose — the folder names
 // (round/step/corner) predate the longer product ids (round-planter/etc.)
 // and renaming folders on disk isn't something this file should force.
+//
+// Product RECORDS (everything below) now live in the database — the admin
+// panel edits them there, and the live site reads them via GET /api/products
+// (see server/db/productsRepo.js / productsCache.js). What's left here is
+// pure, I/O-free data with no runtime consumer: scripts/seedProducts.js
+// inserts it once into a fresh database, and server/discounts.test.js
+// imports it as a fixed fixture so the test suite never needs a live
+// database connection. Nothing under server/ or src/{store,pages,components}
+// imports PRODUCTS/resolveProductPrice from this file any more.
+
+import { COLORWAYS } from "./colorways.js";
+export { COLORWAYS } from "./colorways.js";
 
 // Any product added below without a real `price` (missing, 0, or negative)
 // silently defaults to ₹500 instead of being sold at ₹0 — see the
@@ -20,18 +32,6 @@
 // which Razorpay just rejects outright at checkout). Still set a real price
 // for every product before it ships — 500 is a stand-in, not a decision.
 const DEFAULT_PRICE = 500;
-
-// The site's full named color palette — shared between every product's
-// color picker and the Materials & Fit section, so a swatch always means
-// the same hex wherever it appears. Reference a color by its key from a
-// product's `colors` list below.
-export const COLORWAYS = {
-  black: { name: "Black", hex: "#2B2C31" },
-  peach: { name: "Peach", hex: "#E8A97C" },
-  ivory: { name: "Ivory", hex: "#E9E2D0" },
-  walnut: { name: "Walnut", hex: "#5C4030" },
-  "metallic-blue": { name: "Metallic Blue", hex: "#4F7196" },
-};
 
 // Each entry is { id: <COLORWAYS key>, priceDelta }. priceDelta is added to
 // the product's base price when that color is selected — 0 for every color
@@ -128,14 +128,10 @@ export const PRODUCTS = RAW_PRODUCTS.map((p) => {
 
 export const CATEGORIES = ["All", ...new Set(PRODUCTS.map((p) => p.category))];
 
-// Server-side price resolution for a (productId, colorId) pair — the only
-// place that's allowed to decide what something costs. `colorId` is
-// optional; an unknown or omitted one falls back to the product's default
-// color rather than erroring, but the *price* always comes from this
-// lookup, never from anything the client sends.
-export function resolveProductPrice(productId, colorId) {
-  const product = PRODUCTS.find((p) => p.id === productId);
-  if (!product) return null;
-  const color = product.colors.find((c) => c.id === colorId) || product.colors[0];
-  return { price: product.price + (color?.priceDelta || 0), color };
-}
+// `resolveProductPrice`/`priceCart` used to live here as the server's price
+// authority; they're now in server/pricing.js, taking a `products` array as
+// a parameter (the live catalog from the database) instead of importing this
+// static one — see that file's comments. `DEFAULT_PRICE`'s fallback (>0
+// check, else 500) and `resolveColors()`'s shape are reproduced exactly by
+// server/db/productsRepo.js so a database row and an entry here normalize
+// identically.

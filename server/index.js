@@ -7,11 +7,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Razorpay from "razorpay";
 import nodemailer from "nodemailer";
+import helmet from "helmet";
 import { validateShipping } from "../src/lib/address.js";
 import { buildCustomerEmail, buildOrderEmail, encodeItemsNote } from "./orderEmail.js";
 import { priceCart } from "./pricing.js";
 import { DISCOUNTS, lookupDiscount, checkEligibility, listOffers, looksLikeMultipleCodes, ONE_CODE_PER_ORDER } from "./discounts.js";
 import { createLedger, customerKeys } from "./orderLedger.js";
+import { createProductsCache } from "./db/productsCache.js";
+import * as productsRepo from "./db/productsRepo.js";
+import * as contactsRepo from "./db/contactsRepo.js";
+import * as ordersRepo from "./db/ordersRepo.js";
+import { requireAdmin, signAdminCookie, ADMIN_COOKIE } from "./adminAuth.js";
+import { COLORWAYS } from "../src/data/colorways.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(__dirname, "..", "dist");
@@ -21,6 +28,23 @@ const IMAGE_EXT = /\.(png|jpe?g|webp|avif)$/i;
 // Named SERVER_PORT (not PORT) so it doesn't collide with a PORT env var the
 // dev launcher may already set for the frontend's own port.
 const PORT = process.env.SERVER_PORT || 8787;
+// Browsers only send an Origin header (and so only trigger a CORS check) on
+// cross-origin requests — the site's own frontend, served from this same
+// origin, is never affected either way. This allowlist only decides whether
+// SOME OTHER website's JavaScript may call this API directly (e.g. a
+// look-alike site relaying checkout requests through a visitor's browser).
+// PUBLIC_ORIGIN lets a custom domain (or a Render preview URL) be added
+// without a code change; the deploy's own default Render URL is always
+// allowed so the site keeps working the moment it's live.
+const ALLOWED_ORIGINS = [
+  "https://yz-labs.onrender.com",
+  ...(process.env.PUBLIC_ORIGIN ? [process.env.PUBLIC_ORIGIN] : []),
+  // Vite's dev server proxies /api/* to this server itself (same-origin from
+  // the browser's point of view), so these only matter for hitting the API
+  // directly — curl, a REST client, this repo's own e2e scripts — during
+  // local development.
+  ...(process.env.RENDER ? [] : ["http://localhost:5173", "http://localhost:8787"]),
+];
 const KEY_ID = process.env.RAZORPAY_KEY_ID;
 const KEY_SECRET = process.env.RAZORPAY_KEY_SECRET;
 const WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET;
@@ -47,6 +71,12 @@ const ledger = createLedger({
     return razorpay.orders.all({ skip, count });
   },
 });
+
+// The live product catalog — see server/db/productsCache.js for why this
+// exists (checkout/pricing must not do a database round-trip per request).
+// Admin writes (once Phase C's routes exist) call `invalidate()` then
+// `ensureFresh(0)` so an edit is reflected immediately, not after the TTL.
+const productsCache = createProductsCache({ fetchAllProducts: productsRepo.listActive });
 
 // Contact form mail. CONTACT_EMAIL_USER authenticates and sends; the
 // message lands in CONTACT_TO_EMAIL (defaults to that same address, so a
@@ -125,6 +155,10 @@ async function notifyOrderPaid(orderId, paymentId) {
 
   let order;
   let shopEmail;
+  // Best-effort: a catalog hiccup should never block the payment
+  // confirmation itself, it should just fall back to showing bare product
+  // ids in the emails (describeItems' existing fallback) instead of names.
+  let products = [];
   try {
     order = await razorpay.orders.fetch(orderId);
     // Make sure the ledger knows this order is paid even if the server
@@ -136,7 +170,13 @@ async function notifyOrderPaid(orderId, paymentId) {
     if (duplicateDiscount) {
       console.warn(`[server] DUPLICATE DISCOUNT on ${orderId}: this customer had already used the code on an earlier paid order.`);
     }
-    shopEmail = buildOrderEmail(order, paymentId, { duplicateDiscount });
+    try {
+      await productsCache.ensureFresh();
+      products = productsCache.getAll();
+    } catch (err) {
+      console.error(`[server] couldn't load the catalog for ${orderId}'s emails, falling back to bare ids:`, err?.message || err);
+    }
+    shopEmail = buildOrderEmail(order, paymentId, { duplicateDiscount, products });
   } catch (err) {
     release();
     console.error(`[server] could not load paid order ${orderId} to send its emails:`, err);
@@ -167,7 +207,7 @@ async function notifyOrderPaid(orderId, paymentId) {
 
   if (sendCustomer) {
     try {
-      const confirmation = buildCustomerEmail(order, paymentId, { email: CONTACT_TO_EMAIL, phone: SHOP_PHONE });
+      const confirmation = buildCustomerEmail(order, paymentId, { email: CONTACT_TO_EMAIL, phone: SHOP_PHONE, products });
       if (!confirmation) {
         console.warn(`[server] no customer email on ${orderId}; confirmation not sent.`);
       } else if (!mailer) {
@@ -186,6 +226,17 @@ async function notifyOrderPaid(orderId, paymentId) {
       console.error(`[server] could not send the customer confirmation for ${orderId}:`, err);
     }
   }
+
+  // Best-effort mirror into the database for the admin orders view — never
+  // consulted for payment/discount correctness (that stays Razorpay-via-
+  // ledger, above), so a failure here never retries and never blocks either
+  // email; it just means this one order is missing from the admin list until
+  // the next webhook/verify call for it succeeds in mirroring it.
+  try {
+    await ordersRepo.upsertFromRazorpay(order, { paymentId });
+  } catch (err) {
+    console.error(`[server] couldn't mirror ${orderId} into the database:`, err?.message || err);
+  }
 }
 
 const app = express();
@@ -195,7 +246,31 @@ const app = express();
 // site. Trust exactly one hop there; not locally, where the header could be
 // forged by anyone.
 if (process.env.RENDER) app.set("trust proxy", 1);
-app.use(cors());
+
+// Content-Security-Policy is deliberately left off for now rather than
+// guessed at: Razorpay's checkout widget spans several of their own
+// subdomains (script, iframe, XHR beacons) across UPI/cards/netbanking/
+// wallets, and their published guidance is broad allowlists per method —
+// getting a directive wrong wouldn't show up here, it would silently break
+// one payment method for real customers. Every other hardening header
+// helmet sets (nosniff, frame-ancestors/clickjacking protection, HSTS,
+// referrer-policy, etc.) doesn't touch Razorpay or Google Fonts, so those are
+// safe to turn on now; a properly scoped CSP is a follow-up worth doing
+// against a real end-to-end checkout across every payment method, not
+// bundled in here.
+app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+
+// Only a request that carries an Origin AND isn't on the allowlist is
+// refused — same-origin requests (the site's own frontend, Razorpay's
+// server-to-server webhook) never send one, so they're unaffected.
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+      callback(new Error("Not allowed by CORS"));
+    },
+  })
+);
 
 // Webhook route needs the raw request body to verify Razorpay's signature,
 // so it's registered BEFORE the global express.json() parser below.
@@ -245,6 +320,17 @@ const offersLimited = makeLimiter(10 * 60 * 1000, 120);
 // One signup per keystroke-mistake retry is normal; the cap only needs to
 // stop someone scripting the endpoint to spam the shop inbox.
 const waitlistLimited = makeLimiter(60 * 60 * 1000, 8);
+// A real shopper might create a handful of orders (cart changes, an
+// abandoned checkout retried, switching the discount code) — this only needs
+// to catch a script hammering Razorpay's create-order API (and, when a code
+// is given, the discount-history refetch) through this endpoint.
+const createOrderLimited = makeLimiter(10 * 60 * 1000, 20);
+// Verification is called once per real payment attempt; a little slack
+// covers a flaky connection retrying it.
+const verifyPaymentLimited = makeLimiter(10 * 60 * 1000, 30);
+// Login attempts against a single shared secret — tight, since a wrong guess
+// here is either a typo or someone trying to brute-force ADMIN_TOKEN.
+const adminLoginLimited = makeLimiter(10 * 60 * 1000, 10);
 const clientIp = (req) => req.ip || req.socket?.remoteAddress || "unknown";
 
 // Is this code good for this cart? Deliberately knows nothing about WHO is
@@ -252,12 +338,20 @@ const clientIp = (req) => req.ip || req.socket?.remoteAddress || "unknown";
 // can only be decided once they've entered their details, so that check
 // happens in /api/create-order — this is just the "does it exist and what
 // would it take off" preview the cart shows.
-app.post("/api/discount/preview", (req, res) => {
+app.post("/api/discount/preview", async (req, res) => {
   if (codeCheckLimited(clientIp(req))) {
     return res.status(429).json({ ok: false, error: "Too many attempts. Please try again in a few minutes." });
   }
   if (looksLikeMultipleCodes(req.body?.code)) return res.status(400).json({ ok: false, error: ONE_CODE_PER_ORDER });
-  const priced = priceCart(req.body?.items);
+  let products;
+  try {
+    await productsCache.ensureFresh();
+    products = productsCache.getAll();
+  } catch (err) {
+    console.error("[server] couldn't load the catalog:", err?.message || err);
+    return res.status(503).json({ ok: false, error: "The catalog isn't available right now. Please try again in a moment." });
+  }
+  const priced = priceCart(req.body?.items, products);
   if (!priced.ok) return res.status(priced.status).json({ ok: false, error: priced.error });
 
   const found = lookupDiscount(req.body?.code, priced.subtotalPaise);
@@ -277,21 +371,40 @@ app.post("/api/discount/preview", (req, res) => {
 // marked `listed` in discounts.js, each with what it would save on THIS cart
 // (or, if the cart is under its minimum, how much more to add). Unlisted
 // codes are never returned — they only work if typed.
-app.post("/api/discount/offers", (req, res) => {
+app.post("/api/discount/offers", async (req, res) => {
   if (offersLimited(clientIp(req))) {
     return res.status(429).json({ ok: false, error: "Too many requests. Please try again in a few minutes." });
   }
-  const priced = priceCart(req.body?.items);
+  let products;
+  try {
+    await productsCache.ensureFresh();
+    products = productsCache.getAll();
+  } catch (err) {
+    console.error("[server] couldn't load the catalog:", err?.message || err);
+    return res.status(503).json({ ok: false, error: "The catalog isn't available right now. Please try again in a moment." });
+  }
+  const priced = priceCart(req.body?.items, products);
   if (!priced.ok) return res.status(priced.status).json({ ok: false, error: priced.error });
   res.json({ ok: true, offers: listOffers(priced.subtotalPaise) });
 });
 
 app.post("/api/create-order", async (req, res) => {
+  if (createOrderLimited(clientIp(req))) {
+    return res.status(429).json({ error: "Too many attempts. Please try again in a few minutes." });
+  }
   if (!razorpay) {
     return res.status(500).json({ error: "Razorpay is not configured on the server yet — add keys to .env." });
   }
 
-  const priced = priceCart(req.body?.items);
+  let products;
+  try {
+    await productsCache.ensureFresh();
+    products = productsCache.getAll();
+  } catch (err) {
+    console.error("[server] couldn't load the catalog:", err?.message || err);
+    return res.status(503).json({ error: "The catalog isn't available right now. Please try again in a moment." });
+  }
+  const priced = priceCart(req.body?.items, products);
   if (!priced.ok) return res.status(priced.status).json({ error: priced.error });
   const { lineItems, subtotalPaise } = priced;
 
@@ -404,6 +517,9 @@ app.post("/api/create-order", async (req, res) => {
 });
 
 app.post("/api/verify-payment", (req, res) => {
+  if (verifyPaymentLimited(clientIp(req))) {
+    return res.status(429).json({ ok: false, error: "Too many attempts. Please try again in a few minutes." });
+  }
   const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body || {};
 
   if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
@@ -438,14 +554,7 @@ app.post("/api/verify-payment", (req, res) => {
 // whether it beat the once-per-customer rule). Read from the same ledger
 // that enforces the rules, refreshed from Razorpay first. Off unless
 // ADMIN_TOKEN is set; then needs `Authorization: Bearer <ADMIN_TOKEN>`.
-app.get("/api/admin/discounts", async (req, res) => {
-  if (!ADMIN_TOKEN) return res.status(404).json({ error: "Not found." });
-  const given = Buffer.from(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
-  const want = Buffer.from(ADMIN_TOKEN);
-  if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) {
-    return res.status(401).json({ error: "Unauthorized." });
-  }
-
+app.get("/api/admin/discounts", requireAdmin(ADMIN_TOKEN), async (req, res) => {
   let warning = null;
   try {
     await ledger.ensureFresh(0);
@@ -486,6 +595,243 @@ app.get("/api/admin/discounts", async (req, res) => {
     ...(warning ? { warning } : {}),
     discounts,
   });
+});
+
+// ---------------------------------------------------------------- admin auth
+//
+// A stateless, single-shared-secret login: the same ADMIN_TOKEN that already
+// gated /api/admin/discounts now also unlocks a real browser session (a
+// signed, httpOnly cookie — see adminAuth.js) instead of only working from
+// curl. `requireAdmin` still accepts the original Bearer header too, so
+// nothing that already used it breaks.
+app.post("/api/admin/login", (req, res) => {
+  if (!ADMIN_TOKEN) return res.status(404).json({ error: "Not found." });
+  if (adminLoginLimited(clientIp(req))) {
+    return res.status(429).json({ error: "Too many attempts. Please try again in a few minutes." });
+  }
+  const given = Buffer.from(String(req.body?.token || ""));
+  const want = Buffer.from(ADMIN_TOKEN);
+  if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) {
+    return res.status(401).json({ error: "That token isn't right." });
+  }
+  res.cookie(ADMIN_COOKIE, signAdminCookie(ADMIN_TOKEN), {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: Boolean(process.env.RENDER),
+    maxAge: 12 * 60 * 60 * 1000,
+  });
+  res.json({ ok: true });
+});
+
+app.post("/api/admin/logout", (_req, res) => {
+  res.clearCookie(ADMIN_COOKIE);
+  res.json({ ok: true });
+});
+
+// The cookie is httpOnly (unreadable from JS) on purpose, so this is the
+// client's only way to know whether it's logged in.
+app.get("/api/admin/session", requireAdmin(ADMIN_TOKEN), (_req, res) => {
+  res.json({ ok: true });
+});
+
+// -------------------------------------------------------- admin: products
+//
+// Every mutation invalidates the products cache and forces an immediate
+// reload (ensureFresh(0)) — the admin's own next read, and the very next
+// checkout, sees the edit right away rather than waiting out the cache's TTL.
+async function refreshProductsCacheNow() {
+  productsCache.invalidate();
+  await productsCache.ensureFresh(0);
+}
+
+// { id, priceDelta } for each color, where id must be one of the fixed,
+// non-editable palette keys — admin edits which colors a product offers,
+// never invents a new one (see src/data/colorways.js).
+function validateProductBody(body) {
+  const errors = {};
+  if (!body || typeof body !== "object") return { ok: false, errors: { _: "Invalid request body." } };
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const category = typeof body.category === "string" ? body.category.trim() : "";
+  const imageFolder = typeof body.imageFolder === "string" ? body.imageFolder.trim() : "";
+  if (!name) errors.name = "Name is required.";
+  if (!category) errors.category = "Category is required.";
+  if (!imageFolder) errors.imageFolder = "Image folder is required (must match a folder under public/products/).";
+  const price = Number(body.price);
+  if (!Number.isFinite(price) || price <= 0) errors.price = "Price must be a positive number.";
+  const colorsIn = Array.isArray(body.colors) ? body.colors : [];
+  if (colorsIn.length === 0) errors.colors = "Pick at least one color.";
+  const colors = [];
+  for (const c of colorsIn) {
+    if (!c || !Object.hasOwn(COLORWAYS, c.id)) {
+      errors.colors = `"${c?.id}" isn't a known color.`;
+      break;
+    }
+    const priceDelta = Number(c.priceDelta) || 0;
+    colors.push({ id: c.id, priceDelta });
+  }
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
+  return {
+    ok: true,
+    value: {
+      name,
+      category,
+      imageFolder,
+      price,
+      colors,
+      tagline: typeof body.tagline === "string" ? body.tagline.trim() : "",
+      material: typeof body.material === "string" ? body.material.trim() : "",
+      dims: typeof body.dims === "string" ? body.dims.trim() : "",
+      weight: typeof body.weight === "string" ? body.weight.trim() : "",
+      status: typeof body.status === "string" && body.status.trim() ? body.status.trim() : "In stock",
+      batch: typeof body.batch === "string" ? body.batch.trim() : "",
+      sortOrder: Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0,
+    },
+  };
+}
+
+app.get("/api/admin/products", requireAdmin(ADMIN_TOKEN), async (_req, res) => {
+  try {
+    res.json(await productsRepo.listAllForAdmin());
+  } catch (err) {
+    console.error("[server] admin products list failed:", err);
+    res.status(500).json({ error: "Could not load products." });
+  }
+});
+
+app.post("/api/admin/products", requireAdmin(ADMIN_TOKEN), async (req, res) => {
+  const id = typeof req.body?.id === "string" ? req.body.id.trim() : "";
+  if (!/^[a-z0-9-]{2,60}$/.test(id)) {
+    return res.status(400).json({ error: "Product id must be lowercase letters, numbers and hyphens only." });
+  }
+  const validated = validateProductBody(req.body);
+  if (!validated.ok) return res.status(400).json({ errors: validated.errors });
+  try {
+    const created = await productsRepo.insert({ id, ...validated.value });
+    await refreshProductsCacheNow();
+    res.status(201).json(created);
+  } catch (err) {
+    if (err?.code === "23505") return res.status(409).json({ error: `A product with id "${id}" already exists.` });
+    console.error("[server] admin product create failed:", err);
+    res.status(500).json({ error: "Could not create the product." });
+  }
+});
+
+app.put("/api/admin/products/:id", requireAdmin(ADMIN_TOKEN), async (req, res) => {
+  const validated = validateProductBody(req.body);
+  if (!validated.ok) return res.status(400).json({ errors: validated.errors });
+  try {
+    const updated = await productsRepo.update(req.params.id, validated.value);
+    if (!updated) return res.status(404).json({ error: "No product with that id." });
+    await refreshProductsCacheNow();
+    res.json(updated);
+  } catch (err) {
+    console.error("[server] admin product update failed:", err);
+    res.status(500).json({ error: "Could not update the product." });
+  }
+});
+
+// Soft delete only — an archived product's id still resolves to a real name
+// in past orders/emails instead of "undefined". Hard delete isn't exposed
+// anywhere in the app.
+app.post("/api/admin/products/:id/archive", requireAdmin(ADMIN_TOKEN), async (req, res) => {
+  try {
+    const archived = await productsRepo.archive(req.params.id);
+    if (!archived) return res.status(404).json({ error: "No active product with that id." });
+    await refreshProductsCacheNow();
+    res.json(archived);
+  } catch (err) {
+    console.error("[server] admin product archive failed:", err);
+    res.status(500).json({ error: "Could not archive the product." });
+  }
+});
+
+app.post("/api/admin/products/:id/restore", requireAdmin(ADMIN_TOKEN), async (req, res) => {
+  try {
+    const restored = await productsRepo.restore(req.params.id);
+    if (!restored) return res.status(404).json({ error: "No product with that id." });
+    await refreshProductsCacheNow();
+    res.json(restored);
+  } catch (err) {
+    console.error("[server] admin product restore failed:", err);
+    res.status(500).json({ error: "Could not restore the product." });
+  }
+});
+
+// Real deletion, offered alongside archive — see productsRepo.hardDelete for
+// why this is safe (no foreign key from orders, so an existing order can't
+// be corrupted by it).
+app.delete("/api/admin/products/:id", requireAdmin(ADMIN_TOKEN), async (req, res) => {
+  try {
+    const deleted = await productsRepo.hardDelete(req.params.id);
+    if (!deleted) return res.status(404).json({ error: "No product with that id." });
+    await refreshProductsCacheNow();
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[server] admin product delete failed:", err);
+    res.status(500).json({ error: "Could not delete the product." });
+  }
+});
+
+// -------------------------------------------------------- admin: contacts
+
+app.get("/api/admin/contacts", requireAdmin(ADMIN_TOKEN), async (_req, res) => {
+  try {
+    res.json(await contactsRepo.list());
+  } catch (err) {
+    console.error("[server] admin contacts list failed:", err);
+    res.status(500).json({ error: "Could not load contacts." });
+  }
+});
+
+app.patch("/api/admin/contacts/:id/handled", requireAdmin(ADMIN_TOKEN), async (req, res) => {
+  try {
+    const updated = await contactsRepo.markHandled(req.params.id);
+    if (!updated) return res.status(404).json({ error: "No contact with that id." });
+    res.json(updated);
+  } catch (err) {
+    console.error("[server] admin contact update failed:", err);
+    res.status(500).json({ error: "Could not update the contact." });
+  }
+});
+
+app.delete("/api/admin/contacts/:id", requireAdmin(ADMIN_TOKEN), async (req, res) => {
+  try {
+    const removed = await contactsRepo.remove(req.params.id);
+    if (!removed) return res.status(404).json({ error: "No contact with that id." });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[server] admin contact delete failed:", err);
+    res.status(500).json({ error: "Could not delete the contact." });
+  }
+});
+
+// -------------------------------------------------------- admin: orders
+
+const FULFILLMENT_STATUSES = ["unfulfilled", "shipped"];
+
+app.get("/api/admin/orders", requireAdmin(ADMIN_TOKEN), async (_req, res) => {
+  try {
+    res.json(await ordersRepo.list());
+  } catch (err) {
+    console.error("[server] admin orders list failed:", err);
+    res.status(500).json({ error: "Could not load orders." });
+  }
+});
+
+app.patch("/api/admin/orders/:id/fulfillment", requireAdmin(ADMIN_TOKEN), async (req, res) => {
+  const fulfillmentStatus = req.body?.fulfillmentStatus;
+  if (!FULFILLMENT_STATUSES.includes(fulfillmentStatus)) {
+    return res.status(400).json({ error: `fulfillmentStatus must be one of: ${FULFILLMENT_STATUSES.join(", ")}` });
+  }
+  const trackingNote = typeof req.body?.trackingNote === "string" ? req.body.trackingNote.trim().slice(0, 200) : null;
+  try {
+    const updated = await ordersRepo.updateFulfillment(req.params.id, { fulfillmentStatus, trackingNote });
+    if (!updated) return res.status(404).json({ error: "No order with that id." });
+    res.json(updated);
+  } catch (err) {
+    console.error("[server] admin order fulfillment update failed:", err);
+    res.status(500).json({ error: "Could not update the order." });
+  }
 });
 
 app.get("/api/health", (_req, res) => {
@@ -541,15 +887,21 @@ app.post("/api/contact", async (req, res) => {
     });
     recordSubmission(ip);
     res.json({ ok: true });
+    // Best-effort, after the response: a database hiccup must never turn a
+    // message the shop already has (in their inbox) into a failed request
+    // for the person sending it.
+    contactsRepo
+      .insert({ source: "contact", name: trimmedName, email: trimmedEmail, phone: trimmedPhone || null, message: trimmedMessage })
+      .catch((err) => console.error("[server] couldn't save the contact message to the database:", err?.message || err));
   } catch (err) {
     console.error("[server] contact form send failed:", err);
     res.status(500).json({ error: "Could not send your message. Please try again or email us directly." });
   }
 });
 
-// "Get notified" waitlist signup. There's no database and Render's free disk
-// doesn't survive restarts, so — same as the contact form — the signup's
-// durable record is an email to the shop; nothing is stored on the server.
+// "Get notified" waitlist signup. The email to the shop is still the
+// immediate notification; the database (once reachable — see DATABASE_URL)
+// is what makes the list of everyone who's signed up actually browsable.
 app.post("/api/waitlist", async (req, res) => {
   if (!mailer) {
     return res.status(500).json({ error: "The waitlist isn't configured on the server yet." });
@@ -575,10 +927,28 @@ app.post("/api/waitlist", async (req, res) => {
       text: `${email} joined the "next batch" waitlist.`,
     });
     res.json({ ok: true });
+    // Best-effort, after the response — same reasoning as /api/contact above.
+    contactsRepo
+      .insert({ source: "waitlist", email })
+      .catch((err) => console.error("[server] couldn't save the waitlist signup to the database:", err?.message || err));
   } catch (err) {
     console.error("[server] waitlist signup send failed:", err);
     res.status(500).json({ error: "Could not join the waitlist. Please try again or email us directly." });
   }
+});
+
+// The live product catalog (records only — see /api/product-images below for
+// photos, which stay file-based). Backed by productsCache so this is never a
+// database round-trip on every page load; 503 only if the database has never
+// loaded successfully since boot (see productsCache.js's ensureFresh).
+app.get("/api/products", async (_req, res) => {
+  try {
+    await productsCache.ensureFresh();
+  } catch (err) {
+    console.error("[server] couldn't load the catalog:", err?.message || err);
+    return res.status(503).json({ error: "The catalog isn't available right now." });
+  }
+  res.json(productsCache.getAll());
 });
 
 // Product photos live directly on disk under public/products/<folder>/ —

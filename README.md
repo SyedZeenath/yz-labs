@@ -4,15 +4,20 @@ Small-batch 3D-printed objects storefront — React + Vite frontend, Express bac
 
 ## Project structure
 
-- `src/` — React frontend (components, product data, cart state)
+- `src/` — React frontend (components, cart state); `src/pages/admin/` is the `/admin` panel
 - `server/index.js` — Express backend: creates Razorpay orders, verifies payments, serves the built frontend in production
-- `public/products/` — product photos, one folder per product (`hero.png` is the catalog/hero shot, shot on pure black)
+- `server/db/` — Postgres access: `pool.js` (connection), `productsRepo.js` / `contactsRepo.js` / `ordersRepo.js`, `productsCache.js` (the in-memory cache checkout prices from), `schema.sql` (the whole database schema, applied by hand)
+- `public/products/` — product photos, one folder per product (`hero.png` is the catalog/hero shot, shot on pure black) — unaffected by any of the above, still plain files
 
 ## Local development
 
+You need a Postgres database — this app has no persistence of its own to fall back to. A free [Neon](https://neon.tech) project works well (Render's own free Postgres auto-deletes after 90 days, so it isn't a real option here).
+
 ```bash
 npm install
-cp .env.example .env   # then fill in your Razorpay test keys
+cp .env.example .env          # fill in DATABASE_URL and your Razorpay test keys
+psql "$DATABASE_URL" -f server/db/schema.sql   # or paste schema.sql into Neon's SQL editor
+node scripts/seedProducts.js  # loads the starting catalog into the database, once
 npm run dev
 ```
 
@@ -22,13 +27,21 @@ Get test keys from the [Razorpay Dashboard](https://dashboard.razorpay.com/app/k
 
 ## Editing the catalog
 
-Products live in [`src/data/products.js`](src/data/products.js) — one object per product (name, price, description, material, dimensions, image). Add/edit/remove entries directly, and drop photos into `public/products/`.
+Products live in the database now, edited at **`/admin`** (see below) — add, edit, price, or archive a product there and it's live immediately, no deploy needed. Photos are still plain files: drop them into `public/products/<folder>/` and match that folder name to the product's "Image folder" field in the admin form (`hero.*` is the catalog shot; every other image becomes the detail-popup gallery).
+
+`src/data/products.js` still exists but is no longer live data — it's only the one-time seed for a brand-new database (`scripts/seedProducts.js`) and a fixture for the test suite, so `npm test` never needs a real database.
+
+## Admin panel
+
+`/admin` — products (add/edit/archive), contacts (waitlist signups and contact-form messages), and orders (paid orders mirrored from Razorpay, with a fulfillment status and tracking note you can set). Logs in with `ADMIN_TOKEN` (see below); without it, `/admin` just refuses every login attempt.
+
+The products list is cached in memory for fast checkout (`server/db/productsCache.js`) — any edit through `/admin` invalidates that cache immediately, so a price change or a new product is live on the site right away, not after a delay.
 
 ## Deploying (Render)
 
 1. Push this repo to GitHub.
 2. On [Render](https://render.com), New → Blueprint, point it at the repo — it will pick up `render.yaml` automatically (build: `npm install && npm run build`, start: `npm start`).
-3. In the Render dashboard, set the environment variables: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` (optional, only needed once you configure a webhook).
+3. In the Render dashboard, set the environment variables: `DATABASE_URL` (your Neon connection string — apply `server/db/schema.sql` and run `node scripts/seedProducts.js` against it once, the same as local setup, before the first real deploy), `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` (optional, only needed once you configure a webhook).
 4. Once live, add the deployed webhook URL (`https://your-app.onrender.com/api/webhook`) in the Razorpay Dashboard (event: `payment.captured`) if you want webhook-based payment confirmation in addition to the built-in signature verification. This is also what makes sure you still get the new-order email if a customer closes the tab right after paying.
 
 ### Knowing about orders
@@ -38,10 +51,9 @@ Checkout collects the customer's name, email, mobile and India delivery address 
 - **Email**: one "New order" email per paid order (customer, items, ship-to address) to `CONTACT_TO_EMAIL`. Needs the `CONTACT_EMAIL_*` variables set.
 
 The customer gets their own confirmation too, sent to the email they entered at checkout: order ID, items, discount breakdown, delivery address, what happens next, and your contact details (replies go to `CONTACT_TO_EMAIL`; the phone number shown is `SHOP_PHONE`, default `+91 8660 828944`). The two emails are independent — if one fails to send, the other still goes, and the retry (from the webhook or a second verify) only resends the missing one. It complements Razorpay's own payment receipt rather than replacing it; in the Razorpay Dashboard → Settings → Notifications, leave the customer email/SMS receipts on. Orders with no customer email (placed before the delivery step existed) just skip it.
-- **Razorpay Dashboard**: the same details are stored in the order's notes (`ship_name`, `ship_address`, …).
+- **Razorpay Dashboard**: the same details are stored in the order's notes (`ship_name`, `ship_address`, …) — still the source of truth for payment status and discount history.
 - **Server logs**: every paid order is printed as `PAID ORDER …`.
-
-The server keeps no order database of its own; the email and the Razorpay notes are the durable record (and, below, what discount history is rebuilt from).
+- **`/admin` → Orders**: a best-effort mirror into the database, for browsing and for setting a fulfillment status/tracking note. If this mirror step fails (a database blip) the order simply doesn't show up there yet — it never affects payment confirmation or either email, and never re-decides anything about discounts (that's still Razorpay + `server/orderLedger.js`, unchanged).
 
 ## Discount codes
 
@@ -66,7 +78,7 @@ FIRSTBUY25: {
 
 **Where the history lives.** Deliberately not on this server's disk (Render's free plan wipes it on every restart, which would let codes be reused). Each order's Razorpay notes carry the customer's details and any discount used, and the server rebuilds its history from Razorpay's order list at startup and before deciding a discount. If Razorpay can't be reached and history has never been loaded, discounts are refused rather than guessed. Limits: orders placed before the delivery-address step existed carry no customer details, so those customers can't be recognised as returning; and only the most recent 5,000 orders are read.
 
-**Tracking.** Set `ADMIN_TOKEN` (any long random string), then:
+**Tracking.** Set `ADMIN_TOKEN` (any long random string — it's also what logs you into `/admin`), then:
 
 ```
 curl -H "Authorization: Bearer <ADMIN_TOKEN>" https://your-app.onrender.com/api/admin/discounts
@@ -79,4 +91,4 @@ Run the discount tests with `npm test`.
 ## Before accepting real payments
 
 - Complete Razorpay KYC/business verification and switch to live keys.
-- Review product prices in `src/data/products.js` — placeholders as of writing.
+- Review every product's price, dimensions and weight at `/admin` — several still carry placeholder values as of writing.

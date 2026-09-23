@@ -1,5 +1,3 @@
-import { PRODUCTS } from "../src/data/products.js";
-
 // Razorpay caps every order note at 256 characters, so the line items are
 // stored as a compact "id|colorId|qty|price;..." string rather than JSON
 // (JSON overflowed the limit at around five distinct cart lines).
@@ -10,13 +8,18 @@ export function encodeItemsNote(lineItems) {
   return note.length > NOTE_LIMIT ? `${note.slice(0, NOTE_LIMIT - 1)}…` : note;
 }
 
-function describeItems(itemsNote) {
+// `products` is the live catalog (see server/db/productsCache.js), passed in
+// rather than imported — this file has no database/catalog dependency of its
+// own, and falls back to the bare id/no color name when a product can't be
+// found (an archived or since-deleted product, or `products` not supplied),
+// exactly as it always has.
+function describeItems(itemsNote, products = []) {
   return String(itemsNote || "")
     .split(";")
     .filter(Boolean)
     .map((entry) => {
       const [id, colorId, qty, price] = entry.split("|");
-      const product = PRODUCTS.find((p) => p.id === id);
+      const product = products.find((p) => p.id === id);
       const color = product?.colors.find((c) => c.id === colorId);
       return `  - ${qty} x ${product?.name || id}${color ? ` (${color.name})` : ""} @ Rs ${price} each`;
     });
@@ -32,15 +35,16 @@ const inr = (n) =>
 // forgotten its in-memory order list. `flags.duplicateDiscount` is set when
 // the ledger sees the customer had already used this code (see
 // orderLedger.isDuplicateRedemption).
-export function buildOrderEmail(order, paymentId, flags = {}) {
+export function buildOrderEmail(order, paymentId, { duplicateDiscount, products = [] } = {}) {
   const n = order.notes && typeof order.notes === "object" && !Array.isArray(order.notes) ? order.notes : {};
   const amount = Number(order.amount) / 100;
   const discountCode = n.discount_code || null;
   const discount = Number(n.discount_paise) / 100 || 0;
   const subtotal = Number(n.subtotal_paise) / 100 || amount + discount;
+  const items = describeItems(n.items, products);
 
   const text = [
-    ...(flags.duplicateDiscount
+    ...(duplicateDiscount
       ? [
           `!! CHECK: this customer had already used ${discountCode} on an earlier paid order.`,
           "!! The once-per-customer rule was beaten (likely two checkouts open at once). The payment went through, so decide whether to refund the discount.",
@@ -53,7 +57,7 @@ export function buildOrderEmail(order, paymentId, flags = {}) {
     `Payment ID: ${paymentId || "(see Razorpay dashboard)"}`,
     "",
     "ITEMS",
-    ...(describeItems(n.items).length ? describeItems(n.items) : ["  (not recorded - check the Razorpay dashboard)"]),
+    ...(items.length ? items : ["  (not recorded - check the Razorpay dashboard)"]),
     ...(discountCode
       ? ["", "TOTALS", `  Subtotal:            Rs ${inr(subtotal)}`, `  Discount (${discountCode}): -Rs ${inr(discount)}`, `  Paid:                Rs ${inr(amount)}`]
       : []),
@@ -71,7 +75,7 @@ export function buildOrderEmail(order, paymentId, flags = {}) {
   ].join("\n");
 
   return {
-    subject: `${flags.duplicateDiscount ? "[CHECK] " : ""}New order: Rs ${inr(amount)}${n.ship_name ? ` from ${n.ship_name}` : ""}${discountCode ? ` (${discountCode})` : ""}`,
+    subject: `${duplicateDiscount ? "[CHECK] " : ""}New order: Rs ${inr(amount)}${n.ship_name ? ` from ${n.ship_name}` : ""}${discountCode ? ` (${discountCode})` : ""}`,
     text,
     replyTo: n.ship_email || undefined,
   };
@@ -89,7 +93,8 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // usable customer email (orders placed before the delivery step existed).
 // Razorpay sends its own payment receipt separately; this is the part it
 // can't: what was bought, where it's going, and what happens next.
-export function buildCustomerEmail(order, paymentId, shop = {}) {
+export function buildCustomerEmail(order, paymentId, { email, phone, products = [] } = {}) {
+  const shop = { email, phone };
   const n = order.notes && typeof order.notes === "object" && !Array.isArray(order.notes) ? order.notes : {};
   const to = oneLine(n.ship_email);
   if (!EMAIL_RE.test(to)) return null;
@@ -99,7 +104,7 @@ export function buildCustomerEmail(order, paymentId, shop = {}) {
   const discount = Number(n.discount_paise) / 100 || 0;
   const subtotal = Number(n.subtotal_paise) / 100 || amount + discount;
   const name = oneLine(n.ship_name);
-  const items = describeItems(n.items);
+  const items = describeItems(n.items, products);
 
   const text = [
     name ? `Hi ${name},` : "Hi,",

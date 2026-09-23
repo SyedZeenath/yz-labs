@@ -1,0 +1,77 @@
+-- YZ Labs database schema. Hand-applied once (Neon SQL console or `psql
+-- "$DATABASE_URL" -f server/db/schema.sql`) — there's no migration framework
+-- here, this file is the single source of truth for the shape of the
+-- database. Re-running it is safe (everything is IF NOT EXISTS).
+
+CREATE TABLE IF NOT EXISTS products (
+  id            TEXT PRIMARY KEY,
+  image_folder  TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  category      TEXT NOT NULL,
+  tagline       TEXT NOT NULL DEFAULT '',
+  material      TEXT NOT NULL DEFAULT '',
+  -- [{ "id": "black", "priceDelta": 0 }, ...] — resolved against the static
+  -- COLORWAYS palette (src/data/colorways.js) at read time, same as the
+  -- static catalog did. Not a join table: COLORWAYS itself stays a fixed,
+  -- non-editable app constant, not something rows here reference by FK.
+  colors        JSONB NOT NULL DEFAULT '[]',
+  dims          TEXT NOT NULL DEFAULT '',
+  weight        TEXT NOT NULL DEFAULT '',
+  -- Integer rupees, same convention as the old static catalog (e.g. 1070).
+  -- <= 0 falls back to a default price at read time rather than selling at
+  -- Rs 0 (Razorpay rejects that outright) — see productsRepo.js.
+  price         INTEGER NOT NULL DEFAULT 0,
+  status        TEXT NOT NULL DEFAULT 'In stock',
+  batch         TEXT NOT NULL DEFAULT '',
+  sort_order    INTEGER NOT NULL DEFAULT 0,
+  -- Soft delete: "remove a product" archives it rather than hard-deleting,
+  -- so its id still resolves to a real name in past orders/emails instead
+  -- of showing up as "undefined". Hard delete is deliberately not exposed
+  -- anywhere in the app.
+  archived_at   TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS products_category_idx ON products (category) WHERE archived_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS contacts (
+  id          BIGSERIAL PRIMARY KEY,
+  source      TEXT NOT NULL CHECK (source IN ('waitlist', 'contact')),
+  name        TEXT,               -- null for waitlist signups (email-only)
+  email       TEXT NOT NULL,
+  phone       TEXT,
+  message     TEXT,               -- null for waitlist signups
+  handled_at  TIMESTAMPTZ,        -- admin marks as dealt with
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS contacts_created_at_idx ON contacts (created_at DESC);
+
+CREATE TABLE IF NOT EXISTS orders (
+  id                  TEXT PRIMARY KEY,          -- Razorpay order id
+  status              TEXT NOT NULL,               -- mirrored: created|attempted|paid
+  payment_id          TEXT,
+  subtotal_paise      INTEGER NOT NULL,
+  discount_paise      INTEGER NOT NULL DEFAULT 0,
+  discount_code       TEXT,
+  total_paise         INTEGER NOT NULL,
+  items_note          TEXT,
+  ship_name           TEXT,
+  ship_email          TEXT,
+  ship_phone          TEXT,
+  ship_address        TEXT,
+  ship_city           TEXT,
+  ship_state          TEXT,
+  ship_pincode        TEXT,
+  razorpay_created_at TIMESTAMPTZ,
+  -- These three are the ONLY database-authoritative columns on this table —
+  -- everything else here is a best-effort mirror of Razorpay's own record,
+  -- never consulted for payment or discount correctness (see orderLedger.js,
+  -- which is untouched by this table's existence).
+  fulfillment_status  TEXT NOT NULL DEFAULT 'unfulfilled',
+  tracking_note       TEXT,
+  fulfilled_at        TIMESTAMPTZ,
+  mirrored_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS orders_created_at_idx ON orders (created_at DESC);

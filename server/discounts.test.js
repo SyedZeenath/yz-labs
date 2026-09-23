@@ -5,6 +5,12 @@ import { DISCOUNTS, lookupDiscount, checkEligibility, normalizeCode, listOffers,
 import { createLedger, canonicalEmail, customerKeys } from "./orderLedger.js";
 import { priceCart } from "./pricing.js";
 import { buildCustomerEmail, buildOrderEmail } from "./orderEmail.js";
+// priceCart is now pure/DI (see pricing.js) — it no longer imports a catalog
+// itself, so tests pass this fixture explicitly. Using the real static
+// PRODUCTS (rather than a hand-written fixture) keeps every existing
+// assertion's expected numbers (e.g. round-planter at Rs 1070) meaningful
+// without duplicating them.
+import { PRODUCTS } from "../src/data/products.js";
 
 // Temporarily defines codes for a test, always removing them afterwards.
 function withCodes(codes, fn) {
@@ -254,11 +260,11 @@ test("markPaid returns null for an order this server hasn't seen; upsert reconci
 });
 
 test("priceCart prices from the catalog in integer paise and rejects bad carts", () => {
-  const ok = priceCart([{ id: "round-planter", colorId: "black", qty: 2 }]);
+  const ok = priceCart([{ id: "round-planter", colorId: "black", qty: 2 }], PRODUCTS);
   assert.equal(ok.ok, true);
   assert.equal(ok.subtotalPaise, 214000);
   for (const bad of [null, [], [null], [{ id: "nope", qty: 1 }], [{ id: "round-planter", colorId: "black", qty: 0 }], [{ id: "round-planter", colorId: "black", qty: 1.5 }]]) {
-    assert.equal(priceCart(bad).ok, false, JSON.stringify(bad));
+    assert.equal(priceCart(bad, PRODUCTS).ok, false, JSON.stringify(bad));
   }
 });
 

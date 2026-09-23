@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { Link } from "react-router-dom";
-import { useProducts, useCategories } from "../store/products.jsx";
+import { useProducts, useCategories, useProductsLoading } from "../store/products.jsx";
 import ProductCard from "./ProductCard.jsx";
 import ProductScatter from "./ProductScatter.jsx";
 import ProductModal from "./ProductModal.jsx";
@@ -32,6 +32,7 @@ function useIsMobile() {
 export default function ProductGrid() {
   const products = useProducts();
   const categories = useCategories();
+  const loading = useProductsLoading();
   const [active, setActive] = useState("All");
   // Store just the id, not the product object — the image scan can still
   // be resolving when a product is opened, and re-deriving from the live
@@ -66,7 +67,11 @@ export default function ProductGrid() {
           <CategoryFilter categories={categories} active={active} onChange={setActive} />
         </div>
 
-        {isMobile ? (
+        {loading ? (
+          <p className="mono" style={{ color: "var(--muted)", fontSize: 13 }}>
+            Loading catalog…
+          </p>
+        ) : isMobile ? (
           <motion.div
             key={active}
             variants={gridVariants}

@@ -6,7 +6,7 @@ import CategoryFilter from "../components/CategoryFilter.jsx";
 import ProductCard from "../components/ProductCard.jsx";
 import ProductModal from "../components/ProductModal.jsx";
 import RevealText from "../components/RevealText.jsx";
-import { useProducts, useCategories } from "../store/products.jsx";
+import { useProducts, useCategories, useProductsLoading } from "../store/products.jsx";
 
 const gridVariants = {
   hidden: {},
@@ -22,6 +22,7 @@ const gridVariants = {
 export default function CatalogPage() {
   const products = useProducts();
   const categories = useCategories();
+  const loading = useProductsLoading();
   const [active, setActive] = useState("All");
   const [selectedId, setSelectedId] = useState(null);
   const selected = products.find((p) => p.id === selectedId) || null;
@@ -55,7 +56,7 @@ export default function CatalogPage() {
 
             {filtered.length === 0 ? (
               <p className="mono" style={{ color: "var(--muted)", fontSize: 13 }}>
-                Nothing in this category yet.
+                {loading ? "Loading catalog…" : "Nothing in this category yet."}
               </p>
             ) : (
               <motion.div

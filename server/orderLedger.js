@@ -14,6 +14,8 @@
 // itself from Razorpay's order list — at startup, and whenever it's gone stale
 // before a discount is decided. Nothing personal is written to disk here.
 
+import { notesOf } from "./razorpayNotes.js";
+
 // "A.B+promo@Gmail.com" and "ab@gmail.com" are one mailbox; Gmail ignores
 // dots and anything after a plus. The +tag is stripped everywhere (nearly
 // every provider supports it); dot-stripping is Gmail-only, since elsewhere
@@ -43,12 +45,6 @@ export function customerKeys({ email, phone, address, pincode }) {
   const pin = String(pincode || "").replace(/\D/g, "");
   if (addr && pin) keys.push(`a:${pin}:${addr}`);
   return keys;
-}
-
-// Razorpay returns `notes` as [] (not {}) when an order has none.
-function notesOf(order) {
-  const n = order?.notes;
-  return n && typeof n === "object" && !Array.isArray(n) ? n : {};
 }
 
 export function keysFromNotes(notes) {

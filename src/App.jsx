@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import Home from "./pages/Home.jsx";
 import CatalogPage from "./pages/CatalogPage.jsx";
@@ -10,6 +10,14 @@ import ContactPage from "./pages/ContactPage.jsx";
 import CartDrawer from "./components/CartDrawer.jsx";
 import ContactModal from "./components/ContactModal.jsx";
 import { useContact } from "./store/contact.jsx";
+
+// Lazy: almost no visitor ever hits /admin, and it's the one part of the app
+// that needs auth — no reason for its code (forms, tables) to sit in the
+// public storefront's bundle.
+const AdminLayout = lazy(() => import("./pages/admin/AdminLayout.jsx"));
+const AdminProductsPage = lazy(() => import("./pages/admin/AdminProductsPage.jsx"));
+const AdminContactsPage = lazy(() => import("./pages/admin/AdminContactsPage.jsx"));
+const AdminOrdersPage = lazy(() => import("./pages/admin/AdminOrdersPage.jsx"));
 
 // react-router doesn't reset scroll position on navigation by itself, and
 // this site's `html { scroll-behavior: smooth }` would otherwise animate a
@@ -71,6 +79,27 @@ export default function App() {
         <Route path="/refund-policy" element={<RefundPolicyPage />} />
         <Route path="/shipping-policy" element={<ShippingPolicyPage />} />
         <Route path="/contact" element={<ContactPage />} />
+        <Route
+          path="/admin"
+          element={
+            <Suspense
+              fallback={
+                <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <p className="mono" style={{ color: "var(--muted)", fontSize: 13 }}>
+                    Loading…
+                  </p>
+                </div>
+              }
+            >
+              <AdminLayout />
+            </Suspense>
+          }
+        >
+          <Route index element={<Navigate to="/admin/products" replace />} />
+          <Route path="products" element={<AdminProductsPage />} />
+          <Route path="contacts" element={<AdminContactsPage />} />
+          <Route path="orders" element={<AdminOrdersPage />} />
+        </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <CartDrawer />
