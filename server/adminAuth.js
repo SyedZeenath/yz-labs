@@ -2,33 +2,40 @@ import crypto from "node:crypto";
 
 export const ADMIN_COOKIE = "yz_admin";
 const DEFAULT_SESSION_MS = 12 * 60 * 60 * 1000; // 12 hours
+const RESET_TOKEN_MS = 30 * 60 * 1000; // 30 minutes
 
 function hmac(secret, value) {
   return crypto.createHmac("sha256", secret).update(value).digest("hex");
 }
 
-// A stateless session: no server-side session store, just who it's for, an
-// expiry timestamp, and an HMAC of both keyed on ADMIN_TOKEN (the same
-// secret, and the same crypto.timingSafeEqual-based comparison primitive,
-// already used for the Razorpay webhook signature) — verifying a cookie
-// needs nothing but the secret itself. Carries the logged-in admin's email
-// (base64url-encoded, since email can't safely contain the "." separator
-// unescaped) so a request can know WHO is acting, not just THAT someone is.
-export function signAdminCookie(secret, email, { sessionMs = DEFAULT_SESSION_MS, now = Date.now } = {}) {
-  const expiresAt = now() + sessionMs;
+// A stateless token: no server-side store, just who it's for, an expiry
+// timestamp, and an HMAC of both keyed on ADMIN_TOKEN (the same secret, and
+// the same crypto.timingSafeEqual-based comparison primitive, already used
+// for the Razorpay webhook signature) — verifying one needs nothing but the
+// secret itself. `purpose` scopes what the token is FOR ("admin" session
+// cookies vs "reset" password-reset links) into the signed message, so a
+// session cookie can never be replayed as a reset token or vice versa even
+// though both are the same shape. Carries the email (base64url-encoded,
+// since it can't safely contain the "." separator unescaped) so a request
+// can know WHO it's for, not just THAT it's valid. Reused rather than
+// resigned per use, so — like the session cookie — a reset link stays
+// valid for its whole window even if used more than once; acceptable for
+// this app's small, named admin list.
+function signToken(secret, purpose, email, ttlMs, now) {
+  const expiresAt = now() + ttlMs;
   const emailPart = Buffer.from(String(email)).toString("base64url");
-  return `${emailPart}.${expiresAt}.${hmac(secret, `admin:${emailPart}:${expiresAt}`)}`;
+  return `${emailPart}.${expiresAt}.${hmac(secret, `${purpose}:${emailPart}:${expiresAt}`)}`;
 }
 
-// Returns the email the cookie was signed for, or null if it's missing,
-// expired, or tampered with.
-export function verifyAdminCookie(value, secret, { now = Date.now } = {}) {
+// Returns the email the token was signed for, or null if it's missing,
+// expired, tampered with, or signed for a different purpose.
+function verifyToken(value, secret, purpose, now) {
   if (typeof value !== "string") return null;
   const [emailPart, expiresAtStr, sig] = value.split(".");
   const expiresAt = Number(expiresAtStr);
   if (!emailPart || !expiresAtStr || !sig || !Number.isFinite(expiresAt)) return null;
   if (now() > expiresAt) return null;
-  const expected = Buffer.from(hmac(secret, `admin:${emailPart}:${expiresAt}`));
+  const expected = Buffer.from(hmac(secret, `${purpose}:${emailPart}:${expiresAt}`));
   const given = Buffer.from(sig);
   if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) return null;
   try {
@@ -36,6 +43,28 @@ export function verifyAdminCookie(value, secret, { now = Date.now } = {}) {
   } catch {
     return null;
   }
+}
+
+export function signAdminCookie(secret, email, { sessionMs = DEFAULT_SESSION_MS, now = Date.now } = {}) {
+  return signToken(secret, "admin", email, sessionMs, now);
+}
+
+export function verifyAdminCookie(value, secret, { now = Date.now } = {}) {
+  return verifyToken(value, secret, "admin", now);
+}
+
+// A password-reset link's proof: knowing this token IS proof of owning that
+// admin's inbox (it only ever reaches them via an email sent to their own
+// address — see POST /api/admin/request-reset), which is why
+// adminUsersRepo.setPassword (unlike setInitialPassword) is allowed to
+// overwrite an EXISTING password. ADMIN_TOKEN alone is deliberately not
+// enough for that — see setInitialPassword's own comment.
+export function signResetToken(secret, email, { now = Date.now } = {}) {
+  return signToken(secret, "reset", email, RESET_TOKEN_MS, now);
+}
+
+export function verifyResetToken(value, secret, { now = Date.now } = {}) {
+  return verifyToken(value, secret, "reset", now);
 }
 
 // No `cookie-parser` dependency — this app only ever needs to read the one

@@ -21,7 +21,9 @@ import * as productsRepo from "./db/productsRepo.js";
 import * as contactsRepo from "./db/contactsRepo.js";
 import * as ordersRepo from "./db/ordersRepo.js";
 import * as adminUsersRepo from "./db/adminUsersRepo.js";
-import { requireAdmin, signAdminCookie, ADMIN_COOKIE, timingSafeEqualStrings } from "./adminAuth.js";
+import { requireAdmin, signAdminCookie, signResetToken, verifyResetToken, ADMIN_COOKIE, timingSafeEqualStrings } from "./adminAuth.js";
+import { buildAdminResetEmail } from "./adminResetEmail.js";
+import { SITE_URL } from "./emailTemplate.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
 import { COLORWAYS } from "../src/data/colorways.js";
 
@@ -843,6 +845,65 @@ app.post("/api/admin/setup-password", async (req, res) => {
   } catch (err) {
     console.error("[server] admin setup-password failed:", err);
     res.status(500).json({ error: "Could not set up that account right now. Please try again." });
+  }
+});
+
+// For an admin who's forgotten their password (distinct from the one-time
+// ADMIN_TOKEN-based setup above, which only ever claims an account that has
+// no password yet). Always answers the same way whether or not the email
+// is actually an admin — this endpoint must never reveal who's on the
+// list — and the real work (looking the account up, emailing a reset link)
+// happens after responding.
+app.post("/api/admin/request-reset", async (req, res) => {
+  if (!ADMIN_TOKEN) return res.status(404).json({ error: "Not found." });
+  if (adminLoginLimited(clientIp(req))) {
+    return res.status(429).json({ error: "Too many attempts. Please try again in a few minutes." });
+  }
+  const email = typeof req.body?.email === "string" ? req.body.email.trim() : "";
+  res.json({ ok: true });
+  if (!email || !mailer) return;
+  try {
+    const user = await adminUsersRepo.getByEmail(email);
+    // No account, or one that's never been set up (nothing to reset) — a
+    // silent no-op either way, same as the generic response above.
+    if (!user || user.needsSetup) return;
+    const token = signResetToken(ADMIN_TOKEN, user.email);
+    const resetUrl = `${SITE_URL}/admin?reset=${encodeURIComponent(token)}`;
+    const mail = buildAdminResetEmail(user.email, resetUrl);
+    await mailer.sendMail({ from: `"YZ Labs admin" <${CONTACT_EMAIL_USER}>`, ...mail });
+  } catch (err) {
+    console.error("[server] admin reset-request failed:", err?.message || err);
+  }
+});
+
+// The reset link's token IS the proof of identity here (see
+// server/adminAuth.js's signResetToken/verifyResetToken) — unlike
+// setup-password above, no separate ADMIN_TOKEN field, and this CAN
+// overwrite an existing password (adminUsersRepo.setPassword).
+app.post("/api/admin/reset-password", async (req, res) => {
+  if (!ADMIN_TOKEN) return res.status(404).json({ error: "Not found." });
+  if (adminLoginLimited(clientIp(req))) {
+    return res.status(429).json({ error: "Too many attempts. Please try again in a few minutes." });
+  }
+  const token = typeof req.body?.token === "string" ? req.body.token : "";
+  const password = typeof req.body?.password === "string" ? req.body.password : "";
+  if (!token || !password) return res.status(400).json({ error: "Fill in every field." });
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    return res.status(400).json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.` });
+  }
+  const email = verifyResetToken(token, ADMIN_TOKEN);
+  if (!email) return res.status(400).json({ error: "This reset link is invalid or has expired. Request a new one." });
+
+  try {
+    const passwordHash = await hashPassword(password);
+    const updated = await adminUsersRepo.setPassword(email, passwordHash);
+    if (!updated) return res.status(404).json({ error: "That account no longer exists." });
+    setAdminCookie(res, updated.email);
+    adminUsersRepo.touchLogin(updated.email).catch((err) => console.error("[server] couldn't record admin login time:", err?.message || err));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[server] admin reset-password failed:", err);
+    res.status(500).json({ error: "Could not reset that password right now. Please try again." });
   }
 });
 

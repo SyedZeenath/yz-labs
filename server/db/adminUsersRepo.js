@@ -33,6 +33,19 @@ export async function setInitialPassword(email, passwordHash) {
   return toModel(rows[0]);
 }
 
+// Unlike setInitialPassword, this CAN overwrite an account that already has
+// one — safe here because the only way to reach this is already having
+// proved ownership of that admin's inbox (a signed reset token, see
+// server/adminAuth.js's signResetToken/verifyResetToken and POST
+// /api/admin/reset-password), not just knowing ADMIN_TOKEN.
+export async function setPassword(email, passwordHash) {
+  const { rows } = await query(
+    `UPDATE admin_users SET password_hash = $2, password_set_at = now() WHERE email = $1 RETURNING *`,
+    [normalize(email), passwordHash]
+  );
+  return toModel(rows[0]);
+}
+
 export async function touchLogin(email) {
   await query(`UPDATE admin_users SET last_login_at = now() WHERE email = $1`, [normalize(email)]);
 }

@@ -13,7 +13,7 @@
     "build": "vite build",
     "start": "node server/index.js",
     "preview": "vite preview",
-    "test": "node --test server/discounts.test.js server/db/productsCache.test.js server/adminAuth.test.js server/passwords.test.js server/gmailApi.test.js server/waitlistEmail.test.js server/shiprocket.test.js server/contactEmail.test.js"
+    "test": "node --test server/discounts.test.js server/db/productsCache.test.js server/adminAuth.test.js server/passwords.test.js server/gmailApi.test.js server/waitlistEmail.test.js server/shiprocket.test.js server/contactEmail.test.js server/adminResetEmail.test.js"
   },
   "dependencies": {
     "cors": "^2.8.6",

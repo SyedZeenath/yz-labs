@@ -1,7 +1,7 @@
 // Run with: npm test
 import test from "node:test";
 import assert from "node:assert/strict";
-import { signAdminCookie, verifyAdminCookie, requireAdmin, ADMIN_COOKIE } from "./adminAuth.js";
+import { signAdminCookie, verifyAdminCookie, signResetToken, verifyResetToken, requireAdmin, ADMIN_COOKIE } from "./adminAuth.js";
 
 const SECRET = "test-admin-secret";
 const EMAIL = "owner@example.com";
@@ -33,6 +33,31 @@ test("garbage or missing cookie values are rejected, not thrown", () => {
   for (const bad of [null, undefined, "", "not-a-real-cookie", "123", "abc.def"]) {
     assert.equal(verifyAdminCookie(bad, SECRET), null, JSON.stringify(bad));
   }
+});
+
+// --- password-reset tokens ---
+
+test("a freshly signed reset token verifies and returns the email it was signed for", () => {
+  const token = signResetToken(SECRET, EMAIL);
+  assert.equal(verifyResetToken(token, SECRET), EMAIL);
+});
+
+test("an expired reset token is rejected", () => {
+  let t = 0;
+  const token = signResetToken(SECRET, EMAIL, { now: () => t });
+  t = 30 * 60 * 1000 + 1; // just past the 30-minute window
+  assert.equal(verifyResetToken(token, SECRET, { now: () => t }), null);
+});
+
+// The whole point of scoping tokens by "purpose" (see adminAuth.js's
+// signToken/verifyToken): a session cookie must never work as a password-
+// reset proof, and a reset link must never work as a login session, even
+// though both are signed with the same secret and the same shape.
+test("a session cookie is not a valid reset token, and a reset token is not a valid session cookie", () => {
+  const cookie = signAdminCookie(SECRET, EMAIL);
+  const resetToken = signResetToken(SECRET, EMAIL);
+  assert.equal(verifyResetToken(cookie, SECRET), null);
+  assert.equal(verifyAdminCookie(resetToken, SECRET), null);
 });
 
 // --- requireAdmin middleware ---
