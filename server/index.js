@@ -100,6 +100,13 @@ const mailer =
     ? nodemailer.createTransport({
         service: "gmail",
         auth: { user: CONTACT_EMAIL_USER, pass: CONTACT_EMAIL_PASS },
+        // Without these, a connection that never completes (some hosts
+        // block or throttle outbound SMTP) hangs the request forever
+        // instead of failing — the caller then waits with no feedback at
+        // all rather than getting a real error to show or retry on.
+        connectionTimeout: 10_000,
+        greetingTimeout: 10_000,
+        socketTimeout: 15_000,
       })
     : null;
 
@@ -185,6 +192,19 @@ async function notifyOrderPaid(orderId, paymentId) {
     return;
   }
 
+  // Mirrored into the database before either email is attempted — never
+  // consulted for payment/discount correctness (that stays Razorpay-via-
+  // ledger, above), but this way the order shows up at /admin -> Orders
+  // right away rather than waiting behind two sequential email attempts,
+  // each potentially taking the mailer's full connection timeout if the
+  // connection is stalled (see the mailer comment above). A failure here
+  // never retries and never blocks either email.
+  try {
+    await ordersRepo.upsertFromRazorpay(order, { paymentId });
+  } catch (err) {
+    console.error(`[server] couldn't mirror ${orderId} into the database:`, err?.message || err);
+  }
+
   if (sendShop) {
     try {
       // Always in the server log too — the one place an order is recorded even
@@ -227,17 +247,6 @@ async function notifyOrderPaid(orderId, paymentId) {
       confirmedOrders.delete(orderId);
       console.error(`[server] could not send the customer confirmation for ${orderId}:`, err);
     }
-  }
-
-  // Best-effort mirror into the database for the admin orders view — never
-  // consulted for payment/discount correctness (that stays Razorpay-via-
-  // ledger, above), so a failure here never retries and never blocks either
-  // email; it just means this one order is missing from the admin list until
-  // the next webhook/verify call for it succeeds in mirroring it.
-  try {
-    await ordersRepo.upsertFromRazorpay(order, { paymentId });
-  } catch (err) {
-    console.error(`[server] couldn't mirror ${orderId} into the database:`, err?.message || err);
   }
 }
 
@@ -911,10 +920,6 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.post("/api/contact", async (req, res) => {
-  if (!mailer) {
-    return res.status(500).json({ error: "The contact form isn't configured on the server yet." });
-  }
-
   const ip = req.ip || req.socket?.remoteAddress || "unknown";
   if (isRateLimited(ip)) {
     return res.status(429).json({ error: "Too many messages sent recently. Please try again later." });
@@ -936,44 +941,52 @@ app.post("/api/contact", async (req, res) => {
     return res.status(400).json({ error: "One of the fields is too long." });
   }
 
+  // The database save is what actually counts as "sent" now, and happens
+  // FIRST — it used to happen only after the notification email succeeded,
+  // which meant a slow or broken email connection (see the mailer comment
+  // above) lost the message entirely instead of just failing to notify
+  // anyone about it. The message is still visible at /admin -> Contacts
+  // even when email is down.
   try {
-    await mailer.sendMail({
-      from: `"YZ Labs website" <${CONTACT_EMAIL_USER}>`,
-      to: CONTACT_TO_EMAIL,
-      replyTo: trimmedEmail,
-      subject: `New website enquiry from ${trimmedName}`,
-      text: [
-        `Name: ${trimmedName}`,
-        `Email: ${trimmedEmail}`,
-        trimmedPhone ? `Phone: ${trimmedPhone}` : null,
-        "",
-        trimmedMessage,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    });
-    recordSubmission(ip);
-    res.json({ ok: true });
-    // Best-effort, after the response: a database hiccup must never turn a
-    // message the shop already has (in their inbox) into a failed request
-    // for the person sending it.
-    contactsRepo
-      .insert({ source: "contact", name: trimmedName, email: trimmedEmail, phone: trimmedPhone || null, message: trimmedMessage })
-      .catch((err) => console.error("[server] couldn't save the contact message to the database:", err?.message || err));
+    await contactsRepo.insert({ source: "contact", name: trimmedName, email: trimmedEmail, phone: trimmedPhone || null, message: trimmedMessage });
   } catch (err) {
-    console.error("[server] contact form send failed:", err);
-    res.status(500).json({ error: "Could not send your message. Please try again or email us directly." });
+    console.error("[server] couldn't save the contact message:", err?.message || err);
+    return res.status(500).json({ error: "Could not send your message. Please try again or email us directly." });
+  }
+  recordSubmission(ip);
+  res.json({ ok: true });
+
+  // Best-effort notification, after the response — its failure (including a
+  // hung/blocked SMTP connection, now bounded by the mailer's own timeouts)
+  // never affects whether the message counted as received.
+  if (mailer) {
+    mailer
+      .sendMail({
+        from: `"YZ Labs website" <${CONTACT_EMAIL_USER}>`,
+        to: CONTACT_TO_EMAIL,
+        replyTo: trimmedEmail,
+        subject: `New website enquiry from ${trimmedName}`,
+        text: [
+          `Name: ${trimmedName}`,
+          `Email: ${trimmedEmail}`,
+          trimmedPhone ? `Phone: ${trimmedPhone}` : null,
+          "",
+          trimmedMessage,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      })
+      .catch((err) => console.error("[server] contact notification email failed:", err?.message || err));
   }
 });
 
-// "Get notified" waitlist signup. The email to the shop is still the
-// immediate notification; the database (once reachable — see DATABASE_URL)
-// is what makes the list of everyone who's signed up actually browsable.
+// "Get notified" waitlist signup. The database save is what actually counts
+// as "joined" and happens FIRST — it used to happen only after the shop's
+// notification email succeeded, which meant a slow or broken email
+// connection (see the mailer comment above) lost the signup entirely rather
+// than just failing to notify anyone about it. The signup is still visible
+// at /admin -> Contacts even when email is down or not configured at all.
 app.post("/api/waitlist", async (req, res) => {
-  if (!mailer) {
-    return res.status(500).json({ error: "The waitlist isn't configured on the server yet." });
-  }
-
   const ip = req.ip || req.socket?.remoteAddress || "unknown";
   if (waitlistLimited(ip)) {
     return res.status(429).json({ error: "Too many signups from here recently. Please try again later." });
@@ -986,21 +999,26 @@ app.post("/api/waitlist", async (req, res) => {
   }
 
   try {
-    await mailer.sendMail({
-      from: `"YZ Labs website" <${CONTACT_EMAIL_USER}>`,
-      to: CONTACT_TO_EMAIL,
-      replyTo: email,
-      subject: `Waitlist signup: ${email}`,
-      text: `${email} joined the "next batch" waitlist.`,
-    });
-    res.json({ ok: true });
-    // Best-effort, after the response — same reasoning as /api/contact above.
-    contactsRepo
-      .insert({ source: "waitlist", email })
-      .catch((err) => console.error("[server] couldn't save the waitlist signup to the database:", err?.message || err));
+    await contactsRepo.insert({ source: "waitlist", email });
   } catch (err) {
-    console.error("[server] waitlist signup send failed:", err);
-    res.status(500).json({ error: "Could not join the waitlist. Please try again or email us directly." });
+    console.error("[server] couldn't save the waitlist signup:", err?.message || err);
+    return res.status(500).json({ error: "Could not join the waitlist. Please try again or email us directly." });
+  }
+  res.json({ ok: true });
+
+  // Best-effort notification, after the response — its failure (including a
+  // hung/blocked SMTP connection, now bounded by the mailer's own timeouts)
+  // never affects whether the signup counted.
+  if (mailer) {
+    mailer
+      .sendMail({
+        from: `"YZ Labs website" <${CONTACT_EMAIL_USER}>`,
+        to: CONTACT_TO_EMAIL,
+        replyTo: email,
+        subject: `Waitlist signup: ${email}`,
+        text: `${email} joined the "next batch" waitlist.`,
+      })
+      .catch((err) => console.error("[server] waitlist notification email failed:", err?.message || err));
   }
 });
 
