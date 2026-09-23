@@ -282,13 +282,30 @@ if (process.env.RENDER) app.set("trust proxy", 1);
 // subdomains (script, iframe, XHR beacons) across UPI/cards/netbanking/
 // wallets, and their published guidance is broad allowlists per method —
 // getting a directive wrong wouldn't show up here, it would silently break
-// one payment method for real customers. Every other hardening header
-// helmet sets (nosniff, frame-ancestors/clickjacking protection, HSTS,
-// referrer-policy, etc.) doesn't touch Razorpay or Google Fonts, so those are
-// safe to turn on now; a properly scoped CSP is a follow-up worth doing
-// against a real end-to-end checkout across every payment method, not
-// bundled in here.
-app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+// one payment method for real customers.
+//
+// Two of helmet's OTHER defaults turned out to do exactly that anyway, found
+// via a real failed card/netbanking payment (UPI worked, those didn't —
+// confirmed live, not guessed):
+// - crossOriginResourcePolicy defaults to "same-origin", which blocks
+//   Razorpay's checkout (running on their own origin) from loading our
+//   public assets (the logo passed as `image` in the checkout config) —
+//   "NotSameOrigin" in the console. Relaxed for exactly what it's for:
+//   public, non-sensitive static assets meant to be embedded elsewhere.
+// - crossOriginOpenerPolicy defaults to "same-origin", which severs
+//   window.opener for any cross-origin popup — cards/netbanking commonly
+//   redirect to the bank via a popup; UPI doesn't need one, which is why
+//   only those two broke. "same-origin-allow-popups" keeps the isolation
+//   for the page itself while still letting a popup WE open keep talking to
+//   the window that opened it.
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+  })
+);
 
 // Only a request that carries an Origin AND isn't on the allowlist is
 // refused — same-origin requests (the site's own frontend, Razorpay's
