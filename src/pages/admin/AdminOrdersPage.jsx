@@ -44,6 +44,9 @@ function OrderRow({ order, onSaved }) {
       </td>
       <td style={{ padding: "10px 12px" }}>₹{rupees(order.totalPaise)}</td>
       <td style={{ padding: "10px 12px" }}>{order.discountCode || "-"}</td>
+      <td style={{ padding: "10px 12px", fontSize: 11 }}>
+        {order.shiprocketOrderId ? <span style={{ color: "#8FE0A8" }}>Pushed ({order.shiprocketOrderId})</span> : <span style={{ color: "var(--muted)" }}>Not yet</span>}
+      </td>
       <td style={{ padding: "10px 12px" }}>
         <select
           value={status}
@@ -112,7 +115,7 @@ export default function AdminOrdersPage() {
         <table className="mono" style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--border-strong)", textAlign: "left" }}>
-              {["When", "Order ID", "Customer", "Total", "Discount", "Fulfillment", "Tracking / note", ""].map((h, i) => (
+              {["When", "Order ID", "Customer", "Total", "Discount", "Shiprocket", "Fulfillment", "Tracking / note", ""].map((h, i) => (
                 <th key={i} style={{ padding: "10px 12px", color: "var(--muted)", fontWeight: 400 }}>
                   {h}
                 </th>

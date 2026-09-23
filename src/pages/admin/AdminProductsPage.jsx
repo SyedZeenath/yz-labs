@@ -12,6 +12,7 @@ const EMPTY_FORM = {
   material: "",
   dims: "",
   weight: "",
+  weightG: "",
   price: "",
   status: "In stock",
   batch: "",
@@ -68,6 +69,7 @@ function ProductForm({ initial, editingId, onCancel, onSaved }) {
       material: form.material,
       dims: form.dims,
       weight: form.weight,
+      weightG: Number(form.weightG) || 0,
       price: Number(form.price),
       status: form.status,
       batch: form.batch,
@@ -132,6 +134,9 @@ function ProductForm({ initial, editingId, onCancel, onSaved }) {
       </Field>
       <Field label="Weight">
         <input style={inputStyle} value={form.weight} onChange={set("weight")} placeholder="134 g" />
+      </Field>
+      <Field label="Weight for shipping (grams)">
+        <input type="number" min="0" style={inputStyle} value={form.weightG} onChange={set("weightG")} placeholder="134" />
       </Field>
       <Field label="Tagline" span>
         <input style={inputStyle} value={form.tagline} onChange={set("tagline")} />
@@ -201,6 +206,7 @@ function formFromProduct(p) {
     material: p.material || "",
     dims: p.dims || "",
     weight: p.weight || "",
+    weightG: p.weightG ? String(p.weightG) : "",
     price: String(p.price),
     status: p.status || "In stock",
     batch: p.batch || "",

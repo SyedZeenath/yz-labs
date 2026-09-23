@@ -23,6 +23,8 @@ function normalize(row) {
     fulfillmentStatus: row.fulfillment_status,
     trackingNote: row.tracking_note,
     fulfilledAt: row.fulfilled_at,
+    shiprocketOrderId: row.shiprocket_order_id,
+    shiprocketPushedAt: row.shiprocket_pushed_at,
     createdAt: row.created_at,
   };
 }
@@ -108,6 +110,16 @@ export async function hasPaidOrderForCustomer(keys) {
 export async function paidRedemptionCount(code, keys) {
   const { rows } = await query(`SELECT ship_email, ship_phone, ship_address, ship_pincode FROM orders WHERE status = 'paid' AND discount_code = $1`, [code]);
   return rows.filter((row) => overlaps(keysForRow(row), keys)).length;
+}
+
+// Records that server/shiprocket.js successfully pushed this order — purely
+// informational for /admin, set fire-and-forget after a paid order's
+// Shiprocket push succeeds. Never awaited by anything payment-critical.
+export async function markShiprocketPushed(id, shiprocketOrderId) {
+  await query(
+    `UPDATE orders SET shiprocket_order_id = $2, shiprocket_pushed_at = now(), updated_at = now() WHERE id = $1`,
+    [id, shiprocketOrderId]
+  );
 }
 
 export async function updateFulfillment(id, { fulfillmentStatus, trackingNote }) {

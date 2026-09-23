@@ -77,6 +77,18 @@ The customer gets their own confirmation too, sent to the email they entered at 
 - **Razorpay Dashboard**: the same details are stored in the order's notes (`ship_name`, `ship_address`, …) — still the source of truth for payment status and discount history.
 - **Server logs**: every paid order is printed as `PAID ORDER …`.
 - **`/admin` → Orders**: a best-effort mirror into the database, for browsing and for setting a fulfillment status/tracking note. If this mirror step fails (a database blip) the order simply doesn't show up there yet — it never affects payment confirmation or either email, and never re-decides anything about discounts (that's still Razorpay + `server/orderLedger.js`, unchanged).
+- **Shiprocket** (see below) — pushed into your Shiprocket panel, ready to ship.
+
+## Shipping (Shiprocket)
+
+Every paid order is also pushed into your [Shiprocket](https://www.shiprocket.in) panel (`server/shiprocket.js`) so it's sitting there ready to go — this is deliberately "push to panel only": nothing here picks a courier, schedules a pickup, or spends any wallet balance. You still open Shiprocket and ship it by hand, same as if you'd entered the order there yourself. `/admin` → Orders shows whether each order made it across (and its Shiprocket order id) under a "Shiprocket" column.
+
+Needs three env vars — `SHIPROCKET_EMAIL`, `SHIPROCKET_PASSWORD`, `SHIPROCKET_PICKUP_LOCATION` (see `.env.example`). Leave any blank and this step is silently skipped; nothing else about the order is affected. Setup:
+
+1. In your Shiprocket dashboard: **Settings → API → Add New API User** — create a dedicated API user (its email must differ from your main login) and note its email/password. `SHIPROCKET_PASSWORD` goes straight into `.env`, never anywhere else.
+2. **Settings → Pickup Addresses** — copy the exact saved nickname of the address you ship from (not the address itself) into `SHIPROCKET_PICKUP_LOCATION`. It has to match character-for-character.
+
+Two things worth knowing about what gets sent: Shiprocket's order-create API takes one parcel size (length/breadth/height) for the *whole* shipment, not per product, so a single approximate default box size is used for every order (`DEFAULT_PARCEL_CM` in `server/shiprocket.js`) — adjust it there if the shop settles on a different standard box. Weight is real, though: each product has a "Weight for shipping (grams)" field at `/admin` (separate from the display-only "Weight" text field), summed per order; a product left at 0g falls back to a rough default rather than making the whole order's weight zero.
 
 ## Discount codes
 

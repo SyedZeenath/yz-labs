@@ -32,6 +32,7 @@ function normalize(row) {
     material: row.material,
     dims: row.dims,
     weight: row.weight,
+    weightG: row.weight_g || 0,
     price: row.price > 0 ? row.price : DEFAULT_PRICE,
     status: row.status,
     batch: row.batch,
@@ -62,8 +63,8 @@ export async function listAllForAdmin() {
 
 export async function insert(data) {
   const { rows } = await query(
-    `INSERT INTO products (id, image_folder, name, category, tagline, material, colors, dims, weight, price, status, batch, sort_order)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+    `INSERT INTO products (id, image_folder, name, category, tagline, material, colors, dims, weight, weight_g, price, status, batch, sort_order)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
      RETURNING *`,
     [
       data.id,
@@ -75,6 +76,7 @@ export async function insert(data) {
       JSON.stringify(data.colors || []),
       data.dims || "",
       data.weight || "",
+      data.weightG || 0,
       data.price || 0,
       data.status || "In stock",
       data.batch || "",
@@ -88,8 +90,8 @@ export async function update(id, data) {
   const { rows } = await query(
     `UPDATE products SET
        image_folder = $2, name = $3, category = $4, tagline = $5, material = $6,
-       colors = $7, dims = $8, weight = $9, price = $10, status = $11, batch = $12,
-       sort_order = $13, updated_at = now()
+       colors = $7, dims = $8, weight = $9, weight_g = $10, price = $11, status = $12, batch = $13,
+       sort_order = $14, updated_at = now()
      WHERE id = $1
      RETURNING *`,
     [
@@ -102,6 +104,7 @@ export async function update(id, data) {
       JSON.stringify(data.colors || []),
       data.dims || "",
       data.weight || "",
+      data.weightG || 0,
       data.price || 0,
       data.status || "In stock",
       data.batch || "",

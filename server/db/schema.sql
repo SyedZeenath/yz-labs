@@ -33,6 +33,12 @@ CREATE TABLE IF NOT EXISTS products (
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS products_category_idx ON products (category) WHERE archived_at IS NULL;
+-- Structured weight in grams, for the Shiprocket push (server/shiprocket.js)
+-- to sum into an order's total parcel weight — separate from the free-text
+-- `weight` column above, which is only ever a display string ("134 g") and
+-- isn't reliably parseable. Added after the table already existed, hence
+-- ALTER rather than being in the CREATE TABLE above.
+ALTER TABLE products ADD COLUMN IF NOT EXISTS weight_g INTEGER NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS contacts (
   id          BIGSERIAL PRIMARY KEY,
@@ -75,6 +81,13 @@ CREATE TABLE IF NOT EXISTS orders (
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS orders_created_at_idx ON orders (created_at DESC);
+-- Set once server/shiprocket.js successfully pushes this order into the
+-- Shiprocket panel — purely informational (admin visibility), never
+-- consulted for anything else. NULL just means "not pushed yet", which is
+-- fine: it's a best-effort step, retried by nothing, fixable by hand in
+-- Shiprocket if it never lands.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS shiprocket_order_id TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS shiprocket_pushed_at TIMESTAMPTZ;
 
 -- Named admin accounts (replaces logging in with the bare ADMIN_TOKEN).
 -- password_hash is NULL until that person sets their own password —

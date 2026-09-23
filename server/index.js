@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Razorpay from "razorpay";
 import { createGmailMailer } from "./gmailApi.js";
+import { createShiprocketClient } from "./shiprocket.js";
 import helmet from "helmet";
 import { validateShipping } from "../src/lib/address.js";
 import { buildCustomerEmail, buildOrderEmail, encodeItemsNote } from "./orderEmail.js";
@@ -111,6 +112,25 @@ const mailer =
     ? createGmailMailer({ clientId: GMAIL_OAUTH_CLIENT_ID, clientSecret: GMAIL_OAUTH_CLIENT_SECRET, refreshToken: GMAIL_OAUTH_REFRESH_TOKEN })
     : null;
 
+// Pushes paid orders into the Shiprocket panel — see server/shiprocket.js
+// for why this is "push to panel only" (no courier/pickup automation).
+// Optional: without these three set, shiprocketClient is null and the push
+// step is silently skipped, same graceful-degradation as the mailer above.
+const SHIPROCKET_EMAIL = process.env.SHIPROCKET_EMAIL;
+const SHIPROCKET_PASSWORD = process.env.SHIPROCKET_PASSWORD;
+const SHIPROCKET_PICKUP_LOCATION = process.env.SHIPROCKET_PICKUP_LOCATION;
+if (!SHIPROCKET_EMAIL || !SHIPROCKET_PASSWORD || !SHIPROCKET_PICKUP_LOCATION) {
+  console.warn(
+    "[server] SHIPROCKET_EMAIL / SHIPROCKET_PASSWORD / SHIPROCKET_PICKUP_LOCATION are not all set in .env, " +
+      "so paid orders won't be pushed to Shiprocket (they still work fully otherwise — see /admin → Orders)."
+  );
+}
+const shiprocketClient = createShiprocketClient({
+  email: SHIPROCKET_EMAIL,
+  password: SHIPROCKET_PASSWORD,
+  pickupLocation: SHIPROCKET_PICKUP_LOCATION,
+});
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Per-IP submission log, purely to stop the contact form being used to
 // blast the inbox. In-memory, so it resets on restart;
@@ -153,6 +173,7 @@ function recordSubmission(ip) {
 // the other is skipped.
 const notifiedOrders = new Set(); // shop email sent
 const confirmedOrders = new Set(); // customer email sent
+const shiprocketPushedOrders = new Set(); // pushed to Shiprocket panel
 const SHOP_PHONE = process.env.SHOP_PHONE || "+91 8660 828944";
 
 // Fetches the order from Razorpay's own record (so a server restart between
@@ -260,6 +281,33 @@ async function sendOrderEmails(order, paymentId, duplicateDiscount) {
   }
 }
 
+// Same claim-before-await/release-on-failure pattern as the two emails
+// above (see notifiedOrders/confirmedOrders) — called from both
+// /api/verify-payment and the webhook, whichever arrives first pushes it,
+// a later retry only pushes if the first attempt never succeeded. A no-op
+// if Shiprocket isn't configured (see shiprocketClient above).
+async function pushOrderToShiprocket(order) {
+  if (!shiprocketClient) return;
+  const orderId = order.id;
+  if (shiprocketPushedOrders.has(orderId)) return;
+  shiprocketPushedOrders.add(orderId);
+  try {
+    let products = [];
+    try {
+      await productsCache.ensureFresh();
+      products = productsCache.getAll();
+    } catch (err) {
+      console.error(`[server] couldn't load the catalog for ${orderId}'s Shiprocket push, falling back to bare ids:`, err?.message || err);
+    }
+    const { shiprocketOrderId } = await shiprocketClient.pushOrder(order, { products });
+    console.log(`[server] pushed ${orderId} to Shiprocket as ${shiprocketOrderId}.`);
+    await ordersRepo.markShiprocketPushed(orderId, shiprocketOrderId);
+  } catch (err) {
+    shiprocketPushedOrders.delete(orderId);
+    console.error(`[server] could not push ${orderId} to Shiprocket:`, err?.message || err);
+  }
+}
+
 // Convenience wrapper for callers (the webhook) that don't need to await the
 // mirror step separately from the emails — see /api/verify-payment for the
 // one caller that does.
@@ -267,6 +315,7 @@ async function notifyOrderPaid(orderId, paymentId) {
   const mirrored = await mirrorPaidOrder(orderId, paymentId);
   if (!mirrored) return;
   await sendOrderEmails(mirrored.order, paymentId, mirrored.duplicateDiscount);
+  await pushOrderToShiprocket(mirrored.order);
 }
 
 const app = express();
@@ -627,7 +676,10 @@ app.post("/api/verify-payment", async (req, res) => {
 
   // Not awaited: the customer shouldn't wait on actual mail delivery to know
   // their payment succeeded.
-  if (mirrored) sendOrderEmails(mirrored.order, razorpay_payment_id, mirrored.duplicateDiscount).catch((err) => console.error(`[server] could not send emails for ${razorpay_order_id}:`, err));
+  if (mirrored) {
+    sendOrderEmails(mirrored.order, razorpay_payment_id, mirrored.duplicateDiscount).catch((err) => console.error(`[server] could not send emails for ${razorpay_order_id}:`, err));
+    pushOrderToShiprocket(mirrored.order).catch((err) => console.error(`[server] could not push ${razorpay_order_id} to Shiprocket:`, err));
+  }
 });
 
 // Discount usage report: per code, how many paid orders used it, how much it
@@ -828,6 +880,9 @@ function validateProductBody(body) {
       material: typeof body.material === "string" ? body.material.trim() : "",
       dims: typeof body.dims === "string" ? body.dims.trim() : "",
       weight: typeof body.weight === "string" ? body.weight.trim() : "",
+      // Structured grams, for the Shiprocket push (server/shiprocket.js) —
+      // separate from the free-text `weight` display string above.
+      weightG: Number.isFinite(Number(body.weightG)) && Number(body.weightG) >= 0 ? Math.round(Number(body.weightG)) : 0,
       status: typeof body.status === "string" && body.status.trim() ? body.status.trim() : "In stock",
       batch: typeof body.batch === "string" ? body.batch.trim() : "",
       sortOrder: Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0,
