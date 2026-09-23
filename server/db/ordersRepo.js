@@ -78,6 +78,11 @@ export async function upsertFromRazorpay(order, { paymentId } = {}) {
   return normalize(rows[0]);
 }
 
+export async function getById(id) {
+  const { rows } = await query(`SELECT * FROM orders WHERE id = $1`, [id]);
+  return rows[0] ? normalize(rows[0]) : null;
+}
+
 export async function list({ limit = 100, offset = 0, fulfillmentStatus } = {}) {
   const where = fulfillmentStatus ? `WHERE fulfillment_status = $3` : "";
   const params = fulfillmentStatus ? [limit, offset, fulfillmentStatus] : [limit, offset];

@@ -10,7 +10,7 @@ import { createGmailMailer } from "./gmailApi.js";
 import { createShiprocketClient } from "./shiprocket.js";
 import helmet from "helmet";
 import { validateShipping } from "../src/lib/address.js";
-import { buildCustomerEmail, buildOrderEmail, encodeItemsNote } from "./orderEmail.js";
+import { buildCustomerEmail, buildOrderEmail, buildShippedEmail, encodeItemsNote } from "./orderEmail.js";
 import { buildWaitlistConfirmationEmail, buildWaitlistNotificationEmail } from "./waitlistEmail.js";
 import { priceCart } from "./pricing.js";
 import { DISCOUNTS, lookupDiscount, checkEligibility, listOffers, looksLikeMultipleCodes, ONE_CODE_PER_ORDER, NOT_AVAILABLE } from "./discounts.js";
@@ -281,6 +281,28 @@ async function sendOrderEmails(order, paymentId, duplicateDiscount) {
       console.error(`[server] could not send the customer confirmation for ${orderId}:`, err);
     }
   }
+}
+
+// The "your order has shipped" email — sent from the DB order mirror (see
+// server/db/ordersRepo.js), triggered automatically the moment an order's
+// fulfillment status first flips to "shipped" (below, in the admin route),
+// and available on demand from the admin orders page (POST
+// /api/admin/orders/:id/notify-shipped) for resending after a tracking note
+// is added or corrected. Throws rather than swallowing its own errors —
+// unlike the fire-and-forget order emails, both call sites here want to
+// know whether it actually sent (one to log it, one to tell the admin).
+async function sendShippedEmail(order, trackingNote) {
+  let products = [];
+  try {
+    await productsCache.ensureFresh();
+    products = productsCache.getAll();
+  } catch (err) {
+    console.error(`[server] couldn't load the catalog for ${order.id}'s shipped email, falling back to bare ids:`, err?.message || err);
+  }
+  const mail = buildShippedEmail(order, { trackingNote, email: CONTACT_TO_EMAIL, phone: SHOP_PHONE, products });
+  if (!mail) throw new Error("This order has no customer email on file.");
+  if (!mailer) throw new Error("Mail is not configured (see the CONTACT_EMAIL_USER/GMAIL_OAUTH_* warning at startup).");
+  await mailer.sendMail({ from: `"YZ Labs" <${CONTACT_EMAIL_USER}>`, ...mail });
 }
 
 // Same claim-before-await/release-on-failure pattern as the two emails
@@ -1028,12 +1050,40 @@ app.patch("/api/admin/orders/:id/fulfillment", requireAdmin(ADMIN_TOKEN), async 
   }
   const trackingNote = typeof req.body?.trackingNote === "string" ? req.body.trackingNote.trim().slice(0, 200) : null;
   try {
+    // Fetched before the update purely to know whether this is the moment
+    // the order FIRST becomes "shipped" — editing the tracking note on an
+    // order that's already shipped shouldn't silently re-notify the
+    // customer every time (that's what the explicit resend button, POST
+    // .../notify-shipped below, is for).
+    const before = await ordersRepo.getById(req.params.id);
     const updated = await ordersRepo.updateFulfillment(req.params.id, { fulfillmentStatus, trackingNote });
     if (!updated) return res.status(404).json({ error: "No order with that id." });
     res.json(updated);
+
+    if (fulfillmentStatus === "shipped" && before?.fulfillmentStatus !== "shipped") {
+      sendShippedEmail(updated, trackingNote).catch((err) => console.error(`[server] could not send the shipped notification for ${updated.id}:`, err?.message || err));
+    }
   } catch (err) {
     console.error("[server] admin order fulfillment update failed:", err);
     res.status(500).json({ error: "Could not update the order." });
+  }
+});
+
+// On-demand resend — for adding/correcting a tracking note after the
+// automatic send above already fired, or retrying if that one failed
+// silently (mail briefly down, no customer email on file at the time).
+app.post("/api/admin/orders/:id/notify-shipped", requireAdmin(ADMIN_TOKEN), async (req, res) => {
+  try {
+    const order = await ordersRepo.getById(req.params.id);
+    if (!order) return res.status(404).json({ error: "No order with that id." });
+    if (order.fulfillmentStatus !== "shipped") {
+      return res.status(400).json({ error: "Mark the order as shipped before sending this email." });
+    }
+    await sendShippedEmail(order, order.trackingNote);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(`[server] manual shipped-notification for ${req.params.id} failed:`, err?.message || err);
+    res.status(502).json({ error: err.message || "Could not send the email." });
   }
 });
 

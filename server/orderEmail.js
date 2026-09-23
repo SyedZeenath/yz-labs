@@ -298,3 +298,76 @@ export function buildCustomerEmail(order, paymentId, { email, phone, products = 
     replyTo: shop.email || undefined,
   };
 }
+
+// The "your order has shipped" email — sent from the DB-mirrored order
+// (server/db/ordersRepo.js: camelCase, no Razorpay `.notes` wrapper),
+// unlike the two builders above which work from the raw Razorpay order.
+// This one only ever runs after a paid order already exists in that
+// mirror, so there's no other source to build it from. Returns null the
+// same way buildCustomerEmail does when there's no usable customer email.
+export function buildShippedEmail(order, { trackingNote, email, phone, products = [] } = {}) {
+  const shop = { email, phone };
+  const to = oneLine(order.shipEmail);
+  if (!EMAIL_RE.test(to)) return null;
+
+  const name = oneLine(order.shipName);
+  const items = describeItems(order.itemsNote, products);
+  const itemsStructured = parseItems(order.itemsNote, products);
+  const note = oneLine(trackingNote);
+  const addressLines = [oneLine(order.shipAddress), `${[order.shipCity, order.shipState].map(oneLine).filter(Boolean).join(", ")}${order.shipPincode ? ` - ${oneLine(order.shipPincode)}` : ""}`].filter(Boolean);
+
+  const text = [
+    name ? `Hi ${name},` : "Hi,",
+    "",
+    "Good news — your order's on its way.",
+    "",
+    `Order ID: ${order.id}`,
+    ...(note ? ["", `TRACKING: ${note}`] : []),
+    "",
+    "WHAT YOU ORDERED",
+    ...(items.length ? items : ["  (see your order confirmation email for details)"]),
+    "",
+    "DELIVERING TO",
+    ...[name, ...addressLines, "India"].filter(Boolean).map((line) => `  ${line}`),
+    "",
+    "Spotted a mistake, or have a question? Reply to this email" + (shop.phone ? ` or call ${shop.phone}` : "") + " and quote your order ID.",
+    "",
+    "YZ Labs",
+    "Small-batch 3D-printed objects, Bengaluru",
+    ...(shop.email ? [shop.email] : []),
+  ].join("\n");
+
+  const html = emailShell({
+    preheader: `Your order's on its way${note ? ` — ${note}` : "."}`,
+    bodyHtml: `
+      <tr><td>
+        <div style="display:inline-block;padding:3px 10px;border:1px solid ${BRAND.accent};border-radius:20px;font-size:11px;letter-spacing:0.06em;color:${BRAND.accent};text-transform:uppercase;margin-bottom:14px;">Shipped</div>
+        <h1 style="margin:0 0 10px;font-size:22px;font-weight:600;color:${BRAND.fg};">${name ? `On its way, ${esc(name)}.` : "Your order's on its way."}</h1>
+        <p style="margin:0;font-size:14px;line-height:1.6;color:${BRAND.fgDim};">Good news — your order has shipped.</p>
+        ${cardHtml(`
+          ${eyebrow("Order", { first: true })}
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;color:${BRAND.fgDim};">
+            <tr><td style="padding:2px 0;color:${BRAND.muted};width:110px;">Order ID</td><td style="padding:2px 0;font-family:monospace;">${esc(order.id)}</td></tr>
+            ${note ? `<tr><td style="padding:2px 0;color:${BRAND.muted};">Tracking</td><td style="padding:2px 0;">${esc(note)}</td></tr>` : ""}
+          </table>
+          ${eyebrow("What you ordered")}
+          ${itemsStructured.length ? itemsTableHtml(itemsStructured) : `<p style="font-size:13px;color:${BRAND.muted};">See your order confirmation email for details.</p>`}
+          ${eyebrow("Delivering to")}
+          <p style="margin:0;font-size:13px;line-height:1.7;color:${BRAND.fgDim};">
+            ${[name, ...addressLines, "India"].filter(Boolean).map(esc).join("<br/>")}
+          </p>
+        `)}
+        <p style="margin:24px 0 0;font-size:13px;line-height:1.6;color:${BRAND.fgDim};">
+          Spotted a mistake, or have a question? Reply to this email${shop.phone ? ` or call ${esc(shop.phone)}` : ""} and quote your order ID.
+        </p>
+      </td></tr>`,
+  });
+
+  return {
+    to,
+    subject: "Your YZ Labs order has shipped",
+    text,
+    html,
+    replyTo: shop.email || undefined,
+  };
+}

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { DISCOUNTS, lookupDiscount, checkEligibility, normalizeCode, listOffers, describeTerms, looksLikeMultipleCodes, ONE_CODE_PER_ORDER } from "./discounts.js";
 import { createLedger, canonicalEmail, customerKeys } from "./orderLedger.js";
 import { priceCart } from "./pricing.js";
-import { buildCustomerEmail, buildOrderEmail } from "./orderEmail.js";
+import { buildCustomerEmail, buildOrderEmail, buildShippedEmail } from "./orderEmail.js";
 // priceCart is now pure/DI (see pricing.js) — it no longer imports a catalog
 // itself, so tests pass this fixture explicitly. Using the real static
 // PRODUCTS (rather than a hand-written fixture) keeps every existing
@@ -350,6 +350,39 @@ test("no customer confirmation without a usable email, and newlines in fields ca
   assert.doesNotMatch(hostile.html, /<script>/);
   assert.match(hostile.html, /&lt;script&gt;/);
   assert.match(hostile.html, /&amp;/);
+});
+
+test("the shipped email includes the tracking note and delivery address, from the DB-mirrored order shape", () => {
+  const order = {
+    id: "order_1",
+    shipName: "Asha Rao",
+    shipEmail: "asha@example.com",
+    shipAddress: "12 MG Road",
+    shipCity: "Bengaluru",
+    shipState: "Karnataka",
+    shipPincode: "560001",
+    itemsNote: "round-planter|black|1|1070",
+  };
+  const mail = buildShippedEmail(order, { trackingNote: "Delhivery AWB 123456", email: "shop@example.com", phone: "+91 1" });
+  assert.equal(mail.to, "asha@example.com");
+  assert.equal(mail.subject, "Your YZ Labs order has shipped");
+  assert.match(mail.text, /^Hi Asha Rao,/);
+  assert.match(mail.text, /TRACKING: Delhivery AWB 123456/);
+  assert.match(mail.text, /1 x .*Rs 1070 each/);
+  assert.match(mail.text, /12 MG Road/);
+  assert.match(mail.html, /<!DOCTYPE html>/);
+  assert.match(mail.html, /Delhivery AWB 123456/);
+  assert.match(mail.html, /Asha Rao/);
+
+  // no tracking note yet: no dangling "Tracking:" row/line
+  const noNote = buildShippedEmail(order, {});
+  assert.doesNotMatch(noNote.text, /TRACKING/);
+  assert.doesNotMatch(noNote.html, /Tracking/);
+});
+
+test("no shipped email without a usable customer email on the order", () => {
+  assert.equal(buildShippedEmail({ id: "o" }, {}), null);
+  assert.equal(buildShippedEmail({ id: "o", shipEmail: "not-an-email" }, {}), null);
 });
 
 // ---------------------------------------------------------------- offers list

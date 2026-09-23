@@ -14,6 +14,8 @@ function OrderRow({ order, onSaved }) {
   const [trackingNote, setTrackingNote] = useState(order.trackingNote || "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [notifyState, setNotifyState] = useState("idle"); // idle | sending | sent | error
+  const [notifyError, setNotifyError] = useState("");
   const dirty = status !== order.fulfillmentStatus || trackingNote !== (order.trackingNote || "");
 
   const save = async () => {
@@ -31,6 +33,23 @@ function OrderRow({ order, onSaved }) {
       setError(err.message || "Could not save.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  // A first "shipped" email fires on its own the moment Save above flips
+  // the status — this is only for resending, e.g. after adding or fixing
+  // the tracking note (editing it alone doesn't auto-notify, see
+  // server/index.js's admin fulfillment route).
+  const notify = async () => {
+    setNotifyState("sending");
+    setNotifyError("");
+    try {
+      const res = await fetch(`/api/admin/orders/${order.id}/notify-shipped`, { method: "POST" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Request failed (${res.status}).`);
+      setNotifyState("sent");
+    } catch (err) {
+      setNotifyState("error");
+      setNotifyError(err.message || "Could not send the email.");
     }
   };
 
@@ -78,6 +97,22 @@ function OrderRow({ order, onSaved }) {
             {error}
           </div>
         )}
+        {!dirty && order.fulfillmentStatus === "shipped" && (
+          <button
+            onClick={notify}
+            disabled={notifyState === "sending"}
+            className="btn btn-ghost"
+            style={{ padding: "6px 12px", fontSize: 11, opacity: notifyState === "sending" ? 0.6 : 1 }}
+          >
+            {notifyState === "sending" ? "Sending…" : "Resend shipping email"}
+          </button>
+        )}
+        {notifyState === "sent" && <div className="mono" style={{ color: "#8FE0A8", fontSize: 11, marginTop: 4 }}>Sent.</div>}
+        {notifyState === "error" && (
+          <div role="alert" className="mono" style={{ color: "#FF8A7A", fontSize: 11, marginTop: 4 }}>
+            {notifyError}
+          </div>
+        )}
       </td>
     </tr>
   );
@@ -105,7 +140,8 @@ export default function AdminOrdersPage() {
       <h1 style={{ fontSize: 22, marginBottom: 8 }}>Orders</h1>
       <p className="mono" style={{ color: "var(--muted)", fontSize: 12, marginBottom: 20 }}>
         Mirrored from Razorpay for browsing — payment status itself is always Razorpay's own record. Fulfillment status and
-        tracking notes here are the one thing this page is the source of truth for.
+        tracking notes here are the one thing this page is the source of truth for. Marking an order "Shipped" emails the
+        customer automatically; editing the tracking note afterward doesn't re-send on its own — use "Resend shipping email" for that.
       </p>
       {orders.length === 0 ? (
         <p className="mono" style={{ color: "var(--muted)", fontSize: 13 }}>
