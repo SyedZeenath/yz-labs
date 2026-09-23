@@ -5,7 +5,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>YZ LABS · Small Objects, Precisely Printed</title>
     <meta name="description" content="YZ LABS designs and 3D prints small-batch objects for the desk and home: planters, vessels, clocks, lamps. Studio-run, layer by layer." />
-    <link rel="icon" href="/logo-circle.png" type="image/png" />
+    <link rel="canonical" href="https://yz-labs.onrender.com/" />
+    <!-- Small, dedicated icon files rather than pointing straight at the
+         2048px logo master — the tab icon and the home-screen icon only
+         ever need to be this big. -->
+    <link rel="icon" href="/favicon-64.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- Open Graph / Twitter: what a chat app, Slack, or social feed shows
+         when someone shares a link to the site. og:image needs an absolute
+         URL (relative ones aren't reliably resolved by scrapers), so this
+         hardcodes the production origin rather than being page-relative —
+         update it if the site ever moves off this domain. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="YZ LABS" />
+    <meta property="og:title" content="YZ LABS · Small Objects, Precisely Printed" />
+    <meta property="og:description" content="YZ LABS designs and 3D prints small-batch objects for the desk and home: planters, vessels, clocks, lamps. Studio-run, layer by layer." />
+    <meta property="og:url" content="https://yz-labs.onrender.com/" />
+    <meta property="og:image" content="https://yz-labs.onrender.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="YZ LABS · Small Objects, Precisely Printed" />
+    <meta name="twitter:description" content="YZ LABS designs and 3D prints small-batch objects for the desk and home: planters, vessels, clocks, lamps. Studio-run, layer by layer." />
+    <meta name="twitter:image" content="https://yz-labs.onrender.com/og-image.png" />
     <!-- The Hero chapter's featured product (FEATURED_ID = "round-planter"
          in HeroChapter.jsx and ScrollHero.jsx) is the very first image a
          visitor sees, fetched today via a JS Image() inside a useEffect —

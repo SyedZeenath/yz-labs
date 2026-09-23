@@ -55,6 +55,9 @@ export default function CartDrawer() {
   // created until the address has been entered and validated.
   const [step, setStep] = useState("cart");
   const bodyRef = useRef(null);
+  const panelRef = useRef(null);
+  const closeButtonRef = useRef(null);
+  const previouslyFocusedRef = useRef(null);
 
   // Always reopen on the cart itself, and fall back to it once the cart
   // empties (a successful payment clears it).
@@ -87,6 +90,26 @@ export default function CartDrawer() {
       body.style.paddingRight = prev.paddingRight;
     };
   }, [isOpen]);
+
+  // Same convention as ContactModal/OffersPanel: Escape closes, and focus
+  // moves into the panel on open and back to whatever opened it (a nav
+  // button, a "view cart" link, an add-to-cart action — callers vary, so the
+  // trigger element is captured generically rather than passed a ref) on
+  // close, instead of staying on an element that's no longer visible.
+  useEffect(() => {
+    if (!isOpen) return;
+    previouslyFocusedRef.current = document.activeElement;
+    closeButtonRef.current?.focus();
+    const onKey = (e) => {
+      if (e.key === "Escape") closeCart();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      const el = previouslyFocusedRef.current;
+      if (el && document.contains(el)) el.focus();
+    };
+  }, [isOpen, closeCart]);
 
   const onDelivery = step === "address";
 
@@ -121,6 +144,10 @@ export default function CartDrawer() {
               whatever's behind that dimmed backdrop. */}
           <motion.aside
             key="panel"
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={onDelivery ? "Delivery details" : "Shopping cart"}
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
@@ -154,7 +181,7 @@ export default function CartDrawer() {
               ) : (
                 <span className="eyebrow">Cart · {itemCount}</span>
               )}
-              <button onClick={closeCart} aria-label="Close cart" style={{ fontSize: 22, cursor: "pointer", lineHeight: 1 }}>
+              <button ref={closeButtonRef} onClick={closeCart} aria-label="Close cart" style={{ fontSize: 22, cursor: "pointer", lineHeight: 1 }}>
                 ×
               </button>
             </div>
