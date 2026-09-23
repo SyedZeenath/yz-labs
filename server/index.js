@@ -1125,9 +1125,20 @@ app.post("/api/waitlist", async (req, res) => {
     return res.status(400).json({ error: "That email address doesn't look valid." });
   }
 
+  const ALREADY_ON_WAITLIST = "You're already on the waitlist — we'll email you when the next batch drops.";
   try {
+    if (await contactsRepo.existsWaitlistEmail(email)) {
+      return res.status(409).json({ error: ALREADY_ON_WAITLIST, alreadyOnWaitlist: true });
+    }
     await contactsRepo.insert({ source: "waitlist", email });
   } catch (err) {
+    // 23505 = unique_violation on contacts_waitlist_email_unique (see
+    // schema.sql) — the existsWaitlistEmail check above already covers the
+    // ordinary case, this only fires if two signups for the same brand-new
+    // email land at almost the exact same moment.
+    if (err?.code === "23505") {
+      return res.status(409).json({ error: ALREADY_ON_WAITLIST, alreadyOnWaitlist: true });
+    }
     console.error("[server] couldn't save the waitlist signup:", err?.message || err);
     return res.status(500).json({ error: "Could not join the waitlist. Please try again or email us directly." });
   }

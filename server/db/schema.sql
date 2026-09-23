@@ -51,6 +51,11 @@ CREATE TABLE IF NOT EXISTS contacts (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS contacts_created_at_idx ON contacts (created_at DESC);
+-- One waitlist signup per email (case-insensitive) — contact-form messages
+-- are unaffected (this only applies to source = 'waitlist' rows). Backs up
+-- the application-level check in POST /api/waitlist against a race between
+-- two near-simultaneous signups for the same brand-new email.
+CREATE UNIQUE INDEX IF NOT EXISTS contacts_waitlist_email_unique ON contacts (lower(email)) WHERE source = 'waitlist';
 
 CREATE TABLE IF NOT EXISTS orders (
   id                  TEXT PRIMARY KEY,          -- Razorpay order id

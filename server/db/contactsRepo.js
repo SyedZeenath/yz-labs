@@ -25,6 +25,18 @@ export async function insert({ source, name = null, email, phone = null, message
   return normalize(rows[0]);
 }
 
+// Used by POST /api/waitlist to refuse a repeat signup — checks every
+// waitlist row regardless of handled_at (being "handled" is just an admin
+// bookkeeping flag, see markHandled below; deleting the row is what
+// actually lets that email sign up again).
+export async function existsWaitlistEmail(email) {
+  const { rows } = await query(
+    `SELECT 1 FROM contacts WHERE source = 'waitlist' AND lower(email) = lower($1) LIMIT 1`,
+    [email]
+  );
+  return rows.length > 0;
+}
+
 export async function list({ limit = 200, offset = 0 } = {}) {
   const { rows } = await query(
     `SELECT * FROM contacts ORDER BY created_at DESC LIMIT $1 OFFSET $2`,

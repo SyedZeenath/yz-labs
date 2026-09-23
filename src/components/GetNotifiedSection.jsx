@@ -10,7 +10,7 @@ import RevealBox from "./RevealBox.jsx";
 export default function GetNotifiedSection() {
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
-  const [status, setStatus] = useState("idle"); // idle | sending | error
+  const [status, setStatus] = useState("idle"); // idle | sending | error | already
   const [error, setError] = useState("");
 
   const handleSubmit = async (e) => {
@@ -25,7 +25,15 @@ export default function GetNotifiedSection() {
         body: JSON.stringify({ email: email.trim() }),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error || "Something went wrong. Please try again.");
+      if (!res.ok) {
+        // Not really an error — same tone as success, just doesn't re-add them.
+        if (body.alreadyOnWaitlist) {
+          setStatus("already");
+          setError(body.error);
+          return;
+        }
+        throw new Error(body.error || "Something went wrong. Please try again.");
+      }
       setSubmitted(true);
     } catch (err) {
       setStatus("error");
@@ -63,7 +71,7 @@ export default function GetNotifiedSection() {
                   value={email}
                   onChange={(e) => {
                     setEmail(e.target.value);
-                    if (status === "error") setStatus("idle");
+                    if (status === "error" || status === "already") setStatus("idle");
                   }}
                   placeholder="you@email.com"
                   aria-invalid={status === "error" ? true : undefined}
@@ -88,8 +96,9 @@ export default function GetNotifiedSection() {
                   {status === "sending" ? "Joining…" : "Join waitlist"}
                 </button>
               </form>
-              {status === "error" && (
-                <p role="alert" className="mono" style={{ fontSize: 13, color: "#FF8A7A", marginTop: 12 }}>
+              {(status === "error" || status === "already") && (
+                <p role="alert" className="mono" style={{ fontSize: 13, color: status === "already" ? "var(--accent)" : "#FF8A7A", marginTop: 12 }}>
+                  {status === "already" ? "✓ " : ""}
                   {error}
                 </p>
               )}
