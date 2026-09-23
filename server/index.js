@@ -12,6 +12,7 @@ import helmet from "helmet";
 import { validateShipping } from "../src/lib/address.js";
 import { buildCustomerEmail, buildOrderEmail, buildShippedEmail, encodeItemsNote } from "./orderEmail.js";
 import { buildWaitlistConfirmationEmail, buildWaitlistNotificationEmail } from "./waitlistEmail.js";
+import { buildContactNotificationEmail } from "./contactEmail.js";
 import { priceCart } from "./pricing.js";
 import { DISCOUNTS, lookupDiscount, checkEligibility, listOffers, looksLikeMultipleCodes, ONE_CODE_PER_ORDER, NOT_AVAILABLE } from "./discounts.js";
 import { createLedger, customerKeys } from "./orderLedger.js";
@@ -1137,22 +1138,9 @@ app.post("/api/contact", async (req, res) => {
   // hung/blocked SMTP connection, now bounded by the mailer's own timeouts)
   // never affects whether the message counted as received.
   if (mailer) {
+    const notification = buildContactNotificationEmail({ name: trimmedName, email: trimmedEmail, phone: trimmedPhone, message: trimmedMessage });
     mailer
-      .sendMail({
-        from: `"YZ Labs website" <${CONTACT_EMAIL_USER}>`,
-        to: CONTACT_TO_EMAIL,
-        replyTo: trimmedEmail,
-        subject: `New website enquiry from ${trimmedName}`,
-        text: [
-          `Name: ${trimmedName}`,
-          `Email: ${trimmedEmail}`,
-          trimmedPhone ? `Phone: ${trimmedPhone}` : null,
-          "",
-          trimmedMessage,
-        ]
-          .filter(Boolean)
-          .join("\n"),
-      })
+      .sendMail({ from: `"YZ Labs website" <${CONTACT_EMAIL_USER}>`, to: CONTACT_TO_EMAIL, ...notification })
       .catch((err) => console.error("[server] contact notification email failed:", err?.message || err));
   }
 });
