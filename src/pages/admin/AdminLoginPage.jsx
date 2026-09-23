@@ -151,7 +151,7 @@ export default function AdminLoginPage({ onLoggedIn }) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
         <form onSubmit={submitReset} style={{ width: "min(380px, 100%)" }}>
-          <div className="eyebrow" style={{ marginBottom: 20 }}>
+          <div className="eyebrow" style={{ display: "flex", marginBottom: 20 }}>
             Reset your password
           </div>
 
@@ -186,7 +186,7 @@ export default function AdminLoginPage({ onLoggedIn }) {
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <form onSubmit={mode === "setup" ? submitSetup : mode === "forgot" ? submitForgot : submitLogin} style={{ width: "min(380px, 100%)" }}>
-        <div className="eyebrow" style={{ marginBottom: 20 }}>
+        <div className="eyebrow" style={{ display: "flex", marginBottom: 20 }}>
           YZ Labs admin
         </div>
 
