@@ -14,9 +14,10 @@ export function encodeItemsNote(lineItems) {
 // rather than imported — this file has no database/catalog dependency of its
 // own, and falls back to the bare id/no color name when a product can't be
 // found (an archived or since-deleted product, or `products` not supplied),
-// exactly as it always has. Shared by both the plain-text and HTML builders
-// below so line-item parsing only lives in one place.
-function parseItems(itemsNote, products = []) {
+// exactly as it always has. Exported so line-item parsing only lives in one
+// place — used by the plain-text/HTML builders below and by GET
+// /api/customer/orders (server/index.js).
+export function parseItems(itemsNote, products = []) {
   return String(itemsNote || "")
     .split(";")
     .filter(Boolean)

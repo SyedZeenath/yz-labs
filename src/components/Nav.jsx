@@ -100,6 +100,30 @@ export default function Nav() {
     };
   }, [menuOpen]);
 
+  const accountButton = (
+    <Link
+      to="/account"
+      aria-label="Your account"
+      className="mono"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 38,
+        height: 38,
+        border: "1px solid var(--border-strong)",
+        cursor: "pointer",
+        background: "rgba(0,0,0,0.3)",
+        flexShrink: 0,
+      }}
+    >
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 20c0-4.4 3.6-8 8-8s8 3.6 8 8" />
+      </svg>
+    </Link>
+  );
+
   const cartButton = (
     <button
       onClick={openCart}
@@ -164,6 +188,7 @@ export default function Nav() {
           </nav>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {accountButton}
             {cartButton}
             <button
               ref={toggleRef}
@@ -234,6 +259,9 @@ export default function Nav() {
             </NavLink>
             <NavLink to="/#process" style={{ fontSize: 13 }}>
               Process
+            </NavLink>
+            <NavLink to="/account" style={{ fontSize: 13 }}>
+              Account
             </NavLink>
             <button
               onClick={() => {

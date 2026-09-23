@@ -32,3 +32,5 @@ services:
         sync: false
       - key: SHIPROCKET_PICKUP_LOCATION
         sync: false
+      - key: SESSION_SECRET
+        sync: false

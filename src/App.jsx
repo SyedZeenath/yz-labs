@@ -7,6 +7,7 @@ import PrivacyPolicyPage from "./pages/PrivacyPolicyPage.jsx";
 import RefundPolicyPage from "./pages/RefundPolicyPage.jsx";
 import ShippingPolicyPage from "./pages/ShippingPolicyPage.jsx";
 import ContactPage from "./pages/ContactPage.jsx";
+import AccountPage from "./pages/AccountPage.jsx";
 import CartDrawer from "./components/CartDrawer.jsx";
 import ContactModal from "./components/ContactModal.jsx";
 import { useContact } from "./store/contact.jsx";
@@ -79,6 +80,7 @@ export default function App() {
         <Route path="/refund-policy" element={<RefundPolicyPage />} />
         <Route path="/shipping-policy" element={<ShippingPolicyPage />} />
         <Route path="/contact" element={<ContactPage />} />
+        <Route path="/account" element={<AccountPage />} />
         <Route
           path="/admin"
           element={

@@ -83,6 +83,19 @@ export async function getById(id) {
   return rows[0] ? normalize(rows[0]) : null;
 }
 
+// A signed-in customer's own order history (GET /api/customer/orders) —
+// matched by email alone, the same identity a customer account IS in this
+// app (no customers table, no customer_id on orders; see
+// server/customerAuth.js). Only ever their PAID orders — an abandoned
+// checkout was never theirs to see reappear.
+export async function listForEmail(email) {
+  const { rows } = await query(
+    `SELECT * FROM orders WHERE status = 'paid' AND lower(ship_email) = lower($1) ORDER BY created_at DESC LIMIT 100`,
+    [email]
+  );
+  return rows.map(normalize);
+}
+
 export async function list({ limit = 100, offset = 0, fulfillmentStatus } = {}) {
   const where = fulfillmentStatus ? `WHERE fulfillment_status = $3` : "";
   const params = fulfillmentStatus ? [limit, offset, fulfillmentStatus] : [limit, offset];

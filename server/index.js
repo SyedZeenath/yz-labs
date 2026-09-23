@@ -10,7 +10,7 @@ import { createGmailMailer } from "./gmailApi.js";
 import { createShiprocketClient } from "./shiprocket.js";
 import helmet from "helmet";
 import { validateShipping } from "../src/lib/address.js";
-import { buildCustomerEmail, buildOrderEmail, buildShippedEmail, encodeItemsNote } from "./orderEmail.js";
+import { buildCustomerEmail, buildOrderEmail, buildShippedEmail, encodeItemsNote, parseItems } from "./orderEmail.js";
 import { buildWaitlistConfirmationEmail, buildWaitlistNotificationEmail } from "./waitlistEmail.js";
 import { buildContactNotificationEmail } from "./contactEmail.js";
 import { priceCart } from "./pricing.js";
@@ -23,6 +23,8 @@ import * as ordersRepo from "./db/ordersRepo.js";
 import * as adminUsersRepo from "./db/adminUsersRepo.js";
 import { requireAdmin, signAdminCookie, signResetToken, verifyResetToken, ADMIN_COOKIE, timingSafeEqualStrings } from "./adminAuth.js";
 import { buildAdminResetEmail } from "./adminResetEmail.js";
+import { requireCustomer, signCustomerSession, signMagicLinkToken, verifyMagicLinkToken, CUSTOMER_COOKIE } from "./customerAuth.js";
+import { buildMagicLinkEmail } from "./customerAuthEmail.js";
 import { SITE_URL } from "./emailTemplate.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
 import { COLORWAYS } from "../src/data/colorways.js";
@@ -68,6 +70,16 @@ const razorpay = KEY_ID && KEY_SECRET ? new Razorpay({ key_id: KEY_ID, key_secre
 // Token for GET /api/admin/discounts (the discount usage report). Unset means
 // that endpoint doesn't exist at all.
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+
+// Signs customer session cookies and sign-in ("magic link") tokens — its
+// own secret, deliberately never ADMIN_TOKEN, so a leaked/forged customer
+// session can never double as admin access (see server/customerAuth.js).
+// Unset means the whole customer-account feature is off (404s), same
+// pattern as ADMIN_TOKEN gating /admin.
+const SESSION_SECRET = process.env.SESSION_SECRET;
+if (!SESSION_SECRET) {
+  console.warn("[server] SESSION_SECRET is not set in .env, so customer accounts (sign-in, order history) are disabled.");
+}
 
 // Who has ordered and which discounts they've used — rebuilt from Razorpay's
 // own order list, so it survives this host's wiped-on-restart disk. See
@@ -454,6 +466,9 @@ const verifyPaymentLimited = makeLimiter(10 * 60 * 1000, 30);
 // Login attempts against a single shared secret — tight, since a wrong guess
 // here is either a typo or someone trying to brute-force ADMIN_TOKEN.
 const adminLoginLimited = makeLimiter(10 * 60 * 1000, 10);
+// A real customer might retype their email a couple of times; this only
+// needs to stop the sign-in endpoint being scripted to spam someone's inbox.
+const customerSigninLimited = makeLimiter(60 * 60 * 1000, 8);
 const clientIp = (req) => req.ip || req.socket?.remoteAddress || "unknown";
 
 // Is this code good for this cart? Deliberately knows nothing about WHO is
@@ -1146,6 +1161,98 @@ app.post("/api/admin/orders/:id/notify-shipped", requireAdmin(ADMIN_TOKEN), asyn
   } catch (err) {
     console.error(`[server] manual shipped-notification for ${req.params.id} failed:`, err?.message || err);
     res.status(502).json({ error: err.message || "Could not send the email." });
+  }
+});
+
+// ------------------------------------------------------------- customer accounts
+//
+// No password ever exists on either side — see server/customerAuth.js. A
+// customer "account" IS their verified email: there's no customers table
+// and no customer_id on orders, "my orders" is just server/db/ordersRepo.js's
+// listForEmail matched against ship_email, the same identity checkout has
+// always collected anyway. Fully separate from checkout itself (still
+// guest, no login required to buy) — this is purely an optional "see my
+// past orders and tracking" area.
+
+function setCustomerCookie(res, email) {
+  res.cookie(CUSTOMER_COOKIE, signCustomerSession(SESSION_SECRET, email), {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: Boolean(process.env.RENDER),
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+  });
+}
+
+// Always the same response regardless of whether this email has ever
+// ordered — anyone can sign in with any email they can prove they own; the
+// magic link itself is that proof, so there's nothing to gate on here.
+app.post("/api/customer/request-signin", async (req, res) => {
+  if (!SESSION_SECRET) return res.status(404).json({ error: "Not found." });
+  if (customerSigninLimited(clientIp(req))) {
+    return res.status(429).json({ error: "Too many attempts. Please try again in a few minutes." });
+  }
+  const email = typeof req.body?.email === "string" ? req.body.email.trim() : "";
+  res.json({ ok: true });
+  if (!EMAIL_RE.test(email) || !mailer) return;
+  try {
+    const token = signMagicLinkToken(SESSION_SECRET, email);
+    const signInUrl = `${SITE_URL}/account?signin=${encodeURIComponent(token)}`;
+    const mail = buildMagicLinkEmail(email, signInUrl);
+    await mailer.sendMail({ from: `"YZ Labs" <${CONTACT_EMAIL_USER}>`, ...mail });
+  } catch (err) {
+    console.error("[server] customer sign-in email failed:", err?.message || err);
+  }
+});
+
+app.post("/api/customer/verify", (req, res) => {
+  if (!SESSION_SECRET) return res.status(404).json({ error: "Not found." });
+  const token = typeof req.body?.token === "string" ? req.body.token : "";
+  const email = token ? verifyMagicLinkToken(token, SESSION_SECRET) : null;
+  if (!email) return res.status(400).json({ error: "This sign-in link is invalid or has expired. Request a new one." });
+  setCustomerCookie(res, email);
+  res.json({ ok: true, email });
+});
+
+app.post("/api/customer/logout", (_req, res) => {
+  res.clearCookie(CUSTOMER_COOKIE);
+  res.json({ ok: true });
+});
+
+// The cookie is httpOnly (unreadable from JS), so this is the client's only
+// way to know both whether it's signed in AND which email — shown in the UI
+// as "Signed in as ...".
+app.get("/api/customer/session", requireCustomer(SESSION_SECRET), (req, res) => {
+  res.json({ ok: true, email: req.customerEmail });
+});
+
+app.get("/api/customer/orders", requireCustomer(SESSION_SECRET), async (req, res) => {
+  try {
+    let products = [];
+    try {
+      await productsCache.ensureFresh();
+      products = productsCache.getAll();
+    } catch (err) {
+      console.error("[server] couldn't load the catalog for a customer's order list, falling back to bare ids:", err?.message || err);
+    }
+    const orders = await ordersRepo.listForEmail(req.customerEmail);
+    res.json(
+      orders.map((o) => ({
+        id: o.id,
+        createdAt: o.createdAt,
+        totalPaise: o.totalPaise,
+        discountCode: o.discountCode,
+        fulfillmentStatus: o.fulfillmentStatus,
+        trackingNote: o.trackingNote,
+        shipAddress: o.shipAddress,
+        shipCity: o.shipCity,
+        shipState: o.shipState,
+        shipPincode: o.shipPincode,
+        items: parseItems(o.itemsNote, products),
+      }))
+    );
+  } catch (err) {
+    console.error("[server] customer order list failed:", err);
+    res.status(500).json({ error: "Could not load your orders." });
   }
 });
 

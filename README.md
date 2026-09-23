@@ -60,6 +60,12 @@ Products live in the database now, edited at **`/admin`** (see below) — add, e
 
 The products list is cached in memory for fast checkout (`server/db/productsCache.js`) — any edit through `/admin` invalidates that cache immediately, so a price change or a new product is live on the site right away, not after a delay.
 
+## Customer accounts
+
+`/account` — a customer can look up their own order history and tracking, separate from checkout (checkout stays guest-only; signing in is optional and never required to buy). Needs `SESSION_SECRET` set (see `.env.example`) — a long random string, deliberately a *different* one from `ADMIN_TOKEN`, so a leaked/forged customer session can never double as admin access.
+
+**No password is ever collected from a customer.** Signing in is a one-click emailed link ("magic link"): enter an email, get a link valid for 30 minutes, click it and you're in — same mechanism as the admin password-reset flow (`server/customerAuth.js`), needs email sending configured (see "Email sending" above) to actually deliver. A customer "account" is just their verified email; there's no customers table and no signup step — "my orders" is `server/db/ordersRepo.js`'s `listForEmail`, matched against the `ship_email` every order already carries from checkout.
+
 ## Deploying (Render)
 
 1. Push this repo to GitHub.
